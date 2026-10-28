@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 14;
+  const APP_VERSION = 15;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -217,8 +217,6 @@
   function placeTimer() {
     const vv = window.visualViewport; const el = $('#timer');
     if (!typing()) baseH = Math.max(window.innerHeight, vv ? vv.height : 0);
-    // iOS lässt die Seite nach dem Schließen der Tastatur manchmal verschoben – zurücksetzen
-    if (!typing() && (window.scrollY || document.documentElement.scrollTop)) window.scrollTo(0, 0);
     const open = typing();
     document.body.classList.toggle('kb', open);
     if (!el) return;
@@ -230,7 +228,11 @@
   }
   if (window.visualViewport) { visualViewport.addEventListener('resize', placeTimer); visualViewport.addEventListener('scroll', placeTimer); }
   document.addEventListener('focusin', () => { placeTimer(); setTimeout(placeTimer, 350); });
-  document.addEventListener('focusout', () => setTimeout(placeTimer, 50));
+  document.addEventListener('focusout', () => setTimeout(() => {
+    placeTimer();
+    // iOS lässt die Seite nach dem Schließen der Tastatur manchmal verschoben – nur in der Übungsansicht zurücksetzen
+    if (!typing() && workoutFits() && window.scrollY) window.scrollTo(0, 0);
+  }, 150));
 
   // ---------- Bildschirm anlassen ----------
   let wake = null;
