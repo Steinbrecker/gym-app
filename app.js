@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 13;
+  const APP_VERSION = 14;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -920,6 +920,19 @@
       case 'reset': if (confirm('Wirklich alle Daten löschen? Vorher ein Backup machen!')) { S = fresh(); save(); render(); } break;
     }
   });
+  // Übungsansicht: Seite nicht scrollen/federn lassen, solange die Übung auf den Bildschirm passt
+  function workoutFits() {
+    if (!S.active || S.summary || view !== 'train') return false;
+    const card = document.querySelector('.card.focus'); if (!card) return false;
+    const timerOn = document.body.classList.contains('timer-on');
+    const reserve = timerOn ? 170 : 84; // Platz für Timer-Kachel und untere Leiste
+    return card.getBoundingClientRect().bottom + window.scrollY + reserve <= window.innerHeight;
+  }
+  document.addEventListener('touchmove', ev => {
+    if (ev.target.closest('.sheet') || typing()) return; // Übersicht darf scrollen
+    if (workoutFits()) ev.preventDefault();
+  }, { passive: false });
+
   // Wischen nach links löscht einen Satz
   let sw = null, lastSwipe = 0;
   document.addEventListener('pointerdown', ev => {
