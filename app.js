@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 7;
+  const APP_VERSION = 8;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -62,7 +62,7 @@
   const $ = sel => document.querySelector(sel);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const fmt = w => (w == null || w === '' ? '–' : (+w).toLocaleString('de-DE', { maximumFractionDigits: 2 }));
-  const ex = id => S.plan.exercises[id];
+  const ex = id => S.plan.exercises[id] || (S.active && S.active.extra && S.active.extra[id]);
   const dayById = id => S.plan.days.find(d => d.id === id);
   const dateDE = iso => new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
   const typeLabel = { H: 'Haupt', A: 'Assistenz', I: 'Isolation' };
@@ -155,7 +155,7 @@
       const firstMachine = pos === 0 && e.type !== 'H' && !machineWarmDone;
       const warm = L.warmups(Object.assign({}, e, { weight: w }), day.kind, firstMachine).map(x => ({ w: x.w, r: x.r, done: false }));
       entries[id] = {
-        sets: Array.from({ length: nSets }, (_, i) => ({ w: w, r: tr[i] || e.lo, rpe: e.rpe, done: false })),
+        sets: Array.from({ length: nSets }, (_, i) => ({ w: w, r: tr[i] || e.lo, rpe: (e.type === 'I' || e.failLast) && i === nSets - 1 && !deload ? 10 : e.rpe, done: false })),
         warm, showWarm: warm.length > 0, intra: null,
       };
     });
@@ -216,7 +216,7 @@
   // ---------- Training beenden ----------
   function finishWorkout() {
     const A = S.active;
-    const items = A.order.map((id, pos) => {
+    const items = A.order.filter(id => !ex(id).extra).map((id, pos) => {
       const e = ex(id); const ent = A.entries[id];
       const done = ent.sets.filter(s => s.done);
       if (ent.sub) return { id, skipped: true, name: e.name, oldW: e.weight, newW: e.weight, note: 'Ersetzt durch ' + ent.sub.name + ' – Progression unverändert' };
@@ -242,12 +242,12 @@
       id: 's' + Date.now(), dayId: A.dayId, pass: A.pass, deload: A.deload, date: A.startedAt, end: now,
       entries: A.order.map((id, pos) => {
         const ent = A.entries[id];
-        return { exId: ent.sub ? null : id, subFor: ent.sub ? id : undefined, name: ent.sub ? ent.sub.name : ex(id).name, pos, sets: ent.sets.filter(s => s.done).map(s => ({ w: s.w, r: s.r, rpe: s.rpe, done: true })) };
+        const isX = ex(id).extra; return { exId: ent.sub || isX ? null : id, subFor: ent.sub ? id : undefined, name: ent.sub ? ent.sub.name : ex(id).name, pos, sets: ent.sets.filter(s => s.done).map(s => ({ w: s.w, r: s.r, rpe: s.rpe, done: true })) };
       }).filter(e => e.sets.length),
     });
     S.sessions[S.sessions.length - 1].results = S.summary.items.filter(it => !it.skipped && !A.deload).map(it => ({ id: it.id, name: it.name, oldW: it.oldW, newW: it.newW, result: it.result }));
     S.subWeights = S.subWeights || {};
-    A.order.forEach(id => { const ent = A.entries[id]; const d = ent.sub && ent.sets.filter(s => s.done); if (d && d.length) S.subWeights[ent.sub.name] = d[d.length - 1].w; });
+    A.order.forEach(id => { const ent = A.entries[id]; const nm = ent.sub ? ent.sub.name : ex(id).extra ? ex(id).name : null; const d = nm && ent.sets.filter(s => s.done); if (d && d.length) S.subWeights[nm] = d[d.length - 1].w; });
     if (A.deload) S.settings.lastDeload = now;
     S.counters[A.dayId] = (S.counters[A.dayId] || 0) + 1;
     S.lastDayId = A.dayId;
@@ -324,7 +324,7 @@
       <section class="hero">
         <div class="eyebrow">Nächstes Training</div>
         <h1>${esc(day.name)}</h1>
-        <div class="muted">Durchgang ${pass + 1} · ${day.kind === 'power' ? 'Kraft' : 'Hypertrophie'}</div>
+        <div class="muted">${day.kind === 'power' ? 'Kraft' : 'Hypertrophie'}</div>
       </section>
       ${R ? renderReview(R) : ''}
       ${hint ? `<div class="note warn">${esc(hint)}</div>` : ''}
@@ -336,26 +336,63 @@
       <button class="btn ghost" data-act="start" data-day="${nid}" data-deload="1">Als Deload starten (90 %, halbe Sätze)</button>
       <details class="other">
         <summary>Anderen Tag wählen</summary>
-        ${S.plan.days.filter(d => d.id !== nid).map(d => `<button class="btn ghost" data-act="start" data-day="${d.id}">${esc(d.name)} · Durchgang ${(S.counters[d.id] || 0) + 1}</button>`).join('')}
+        ${S.plan.days.filter(d => d.id !== nid).map(d => `<button class="btn ghost" data-act="start" data-day="${d.id}">${esc(d.name)}</button>`).join('')}
       </details>
       <div class="muted small center">Version ${APP_VERSION}</div>`;
   }
 
+  function elapsed() {
+    const A = S.active; if (!A) return '';
+    const t = Math.max(0, Math.floor((Date.now() - new Date(A.startedAt)) / 1000));
+    const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+    return (h ? h + ':' + String(m).padStart(2, '0') : String(m).padStart(2, '0')) + ':' + String(sec).padStart(2, '0');
+  }
+  setInterval(() => { const el = document.getElementById('stopwatch'); if (el) el.textContent = elapsed(); }, 1000);
+
   function renderActive() {
     const A = S.active; const day = dayById(A.dayId);
-    const mins = Math.floor((Date.now() - new Date(A.startedAt)) / 60000);
     const total = A.order.reduce((a, id) => a + A.entries[id].sets.length, 0);
     const doneN = A.order.reduce((a, id) => a + A.entries[id].sets.filter(s => s.done).length, 0);
     return `
-      <section class="hero small">
-        <div class="eyebrow">${A.deload ? 'Deload · ' : ''}Durchgang ${A.pass + 1} · ${mins} min</div>
-        <h1>${esc(day.name)}</h1>
-        <div class="progress"><div style="width:${total ? (doneN / total) * 100 : 0}%"></div></div>
-      </section>
+      <div class="topbar"><div class="tb-in">
+        <div class="tb-title">${A.deload ? 'Deload · ' : ''}${esc(day.name)}</div>
+        <div class="tb-time" id="stopwatch">${elapsed()}</div>
+      </div><div class="tb-prog"><div style="width:${total ? (doneN / total) * 100 : 0}%"></div></div></div>
+      <div class="tb-space"></div>
       ${A.order.map((id, pos) => id === currentEx() ? renderExCard(id, pos) : renderCollapsed(id)).join('')}
+      ${A.addOpen ? renderAddPicker() : '<button class="card addex" data-act="addex">+ Übung hinzufügen</button>'}
       <button class="btn primary big" data-act="finish">Training beenden</button>
       <button class="btn ghost danger" data-act="cancel">Training verwerfen</button>
       ${A.reorder ? renderReorder() : ''}`;
+  }
+
+  function renderAddPicker() {
+    const A = S.active;
+    const inWorkout = new Set(A.order.map(id => ex(id).name));
+    const names = [];
+    Object.values(S.plan.exercises).forEach(e => names.push(e.name));
+    Object.values(ALTS).forEach(l => l.forEach(n => names.push(n)));
+    const sugg = [...new Set(names)].filter(n => !inWorkout.has(n)).sort((a, b) => a.localeCompare(b, 'de'));
+    return `<div class="card addpick">
+      <h2>Übung hinzufügen</h2>
+      <div class="muted small">Nur für dieses Training.</div>
+      <div class="addrow"><input id="addname" class="cell left" placeholder="Eigene Übung eingeben"><button class="btn slim" data-act="addcustom">Hinzufügen</button></div>
+      <div class="chips">${sugg.map(n => `<button class="wchip" data-act="addpick" data-name="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+      <button class="link muted" data-act="addclose">Abbrechen</button>
+    </div>`;
+  }
+  function addExtra(name) {
+    const A = S.active; A.extra = A.extra || {};
+    const id = 'x' + Date.now();
+    const tpl = Object.values(S.plan.exercises).find(e => e.name === name);
+    const base = tpl ? { type: tpl.type, sets: tpl.sets, lo: tpl.lo, hi: tpl.hi, rpe: tpl.rpe, kind: tpl.kind, muscle: tpl.muscle, failLast: tpl.failLast } : { type: 'A', sets: 3, lo: 8, hi: 12, rpe: 9, kind: 'm' };
+    const last = lastByName(name);
+    const w = (S.subWeights || {})[name] != null ? S.subWeights[name] : (last && last.sets.length ? last.sets[0].w : (tpl ? tpl.weight : null));
+    A.extra[id] = Object.assign({ id, name, extra: true, weight: null, misses: 0, reductions: [] }, base);
+    A.entries[id] = { sets: Array.from({ length: base.sets }, () => ({ w, r: base.lo, rpe: base.rpe, done: false })), warm: [] };
+    A.order.push(id); A.openId = id; A.addOpen = false;
+    save(); render();
+    const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 
   function renderReorder() {
@@ -393,7 +430,7 @@
   function renderExCard(id, pos) {
     const e = ex(id); const ent = S.active.entries[id];
     const sub = ent.sub;
-    const last = sub ? lastByName(sub.name) : lastAny(id);
+    const last = sub ? lastByName(sub.name) : e.extra ? lastByName(e.name) : lastAny(id);
     const prev = last ? last.sets : [];
     const allDone = ent.sets.every(s => s.done);
     const anyDone = ent.sets.some(s => s.done);
@@ -427,6 +464,7 @@
           ${!sub ? ent.warm.map((w, i) => renderWarm(id, w, i)).join('') : ''}
           ${ent.sets.map((s, i) => renderSet(id, s, i, prev[i])).join('')}
         </div>
+        <button class="addset" data-act="addset" data-ex="${id}">+ Satz hinzufügen</button>
       </article>`;
   }
 
@@ -437,7 +475,7 @@
 
   function renderWarm(id, w, i) {
     return `
-      <div class="set warmrow ${w.done ? 'done' : ''}">
+      <div class="set warmrow ${w.done ? 'done' : ''}" data-swipe="warm" data-ex="${id}" data-i="${i}">
         <div class="sn w">W</div>
         <span class="prev"></span>
         <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.we || w.done ? fmt(w.w) : ''}" placeholder="${fmt(w.w)}">
@@ -449,7 +487,7 @@
 
   function renderSet(id, s, i, p) {
     return `
-      <div class="set ${s.done ? 'done' : ''}">
+      <div class="set ${s.done ? 'done' : ''}" data-swipe="set" data-ex="${id}" data-i="${i}">
         <div class="sn">${i + 1}</div>
         ${prevCell(p)}
         <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${(s.we || s.done) && s.w != null ? fmt(s.w) : ''}" placeholder="${s.w == null ? 'kg' : fmt(s.w)}">
@@ -608,14 +646,47 @@
 
   // ---------- Render: Einstellungen ----------
   function renderSettings() {
+    const BLOCK = 12, DELOAD_EVERY = 7;
+    const own = S.sessions;
+    const start = S.settings.planStart || (own[0] && own[0].date) || null;
+    const week = start ? Math.floor((Date.now() - new Date(start)) / (7 * 864e5)) + 1 : 0;
+    const since = S.settings.lastDeload || start;
+    const wSince = since ? Math.floor((Date.now() - new Date(since)) / (7 * 864e5)) : 0;
+    const toDeload = Math.max(0, DELOAD_EVERY - wSince);
+    const planName = S.plan.name || 'PHUL – Power Hypertrophy Upper Lower';
     return `
-      <section class="hero small"><div class="eyebrow">Einstellungen</div><h1>Plan & Daten</h1></section>
+      <section class="hero small"><h1>Einstellungen</h1></section>
       <div class="card">
-        <h2>Daten</h2>
+        <div class="eyebrow">Aktueller Plan</div>
+        <h2 class="planname">${esc(planName)}</h2>
+        <div class="muted small">4 Tage · Upper/Lower · Kraft + Hypertrophie${start ? ' · seit ' + dateDE(start) : ''}</div>
+        ${start ? `
+          <div class="pbar-label"><span>Woche ${Math.min(week, BLOCK)} von ${BLOCK}</span><span class="muted">${own.length} ${own.length === 1 ? 'Training' : 'Trainings'}</span></div>
+          <div class="pbar"><div style="width:${Math.min(100, (week / BLOCK) * 100)}%"></div></div>
+          <div class="muted small">${week > BLOCK ? 'Block geschafft – Zeit für eine Bilanz. Schreib mir, dann planen wir den nächsten Block.' : `Nach ${BLOCK} Wochen ziehen wir Bilanz und passen Übungen oder Plan an.`}</div>
+          <div class="pbar-label"><span>Deload</span><span class="muted">${toDeload ? 'in ' + toDeload + (toDeload === 1 ? ' Woche' : ' Wochen') : 'jetzt empfohlen'}</span></div>
+          <div class="pbar alt"><div style="width:${Math.min(100, (wSince / DELOAD_EVERY) * 100)}%"></div></div>
+          <div class="muted small">Alle ${DELOAD_EVERY} Wochen geplant, früher wenn 3 Hauptübungen stagnieren.</div>`
+          : '<div class="muted small pmt">Der Fortschritt startet mit deinem ersten Training.</div>'}
+      </div>
+      <details class="card howto">
+        <summary><h2>So funktioniert die App</h2><span class="muted">▾</span></summary>
+        <ul>
+          <li><b>Gewichte:</b> Nach jedem Training rechnet die App aus Gewicht, Wiederholungen und RPE das Gewicht fürs nächste Mal. Alle Sätze oben im Wdh-Bereich bei passendem RPE → mehr Gewicht. Zweimal hintereinander unter dem Bereich → weniger.</li>
+          <li><b>Zu schwer gestartet:</b> Ist der erste Satz klar daneben, schlägt die App für die restlichen Sätze sofort weniger Gewicht vor.</li>
+          <li><b>Rotation:</b> Die Hauptübungen eines Tages wechseln sich jedes Mal an erster Stelle ab. An zweiter Stelle ist 1 Wdh weniger okay.</li>
+          <li><b>RPE:</b> Grundübungen bei RPE 8 (2 Wdh Reserve). Bei Isolation und Maschinen darf der letzte Satz bis zum Versagen gehen – das zählt nicht als Fehlversuch.</li>
+          <li><b>Aufwärmen:</b> Vor Hauptübungen werden Aufwärmsätze berechnet. Sie zählen nicht für Progression und Statistik.</li>
+          <li><b>Pausen:</b> Der Timer startet nach jedem Satz automatisch, je nach Übung 1–3 Minuten.</li>
+          <li><b>Stagnation & Deload:</b> Wird eine Übung zweimal in 6 Wochen reduziert, schlägt der Wochenrückblick einen Tausch vor. Alle 7 Wochen gibt es eine Deload-Woche (90 % Gewicht, halbe Sätze).</li>
+          <li><b>Daten:</b> Alles bleibt auf diesem iPhone. Sichere regelmäßig ein Backup.</li>
+        </ul>
+      </details>
+      <div class="card">
+        <h2>Backup</h2>
         <button class="btn" data-act="export">Backup exportieren</button>
         <label class="btn">Backup importieren<input type="file" accept=".json,application/json" data-file="backup" hidden></label>
-        <label class="btn">Hevy- oder Liftosaur-CSV importieren<input type="file" accept=".csv,text/csv" data-file="hevy" hidden></label>
-        <div class="muted small">${S.hevy.length ? S.hevy.length + ' Einheiten importiert. ' : ''}Letztes Backup: ${S.settings.lastBackup ? dateDE(S.settings.lastBackup) : 'noch nie'}. Daten liegen nur auf diesem Gerät.</div>
+        <div class="muted small pmt">Letztes Backup: ${S.settings.lastBackup ? dateDE(S.settings.lastBackup) : 'noch nie'}</div>
       </div>
       <details class="planedit"><summary class="btn">Plan bearbeiten</summary>
       <div class="muted small pe-hint">Nur nötig, wenn du ohne Rückfrage etwas ändern willst: Gewicht korrigieren, Sätze, Wdh-Bereich, RPE-Ziel oder Gewichtsschritt einer Maschine.</div>
@@ -636,10 +707,6 @@
             </details>`; }).join('')}
         </div>`).join('')}
       </details>
-      <div class="card">
-        <h2>Zurücksetzen</h2>
-        <button class="btn ghost danger" data-act="reset">Alle Daten löschen</button>
-      </div>
       <div class="muted small center">Version ${APP_VERSION} · Daten nur lokal gespeichert</div>`;
   }
 
@@ -647,6 +714,7 @@
   function render() {
     const main = $('#main');
     main.innerHTML = view === 'train' ? renderTrain() : view === 'stats' ? renderStats() : renderSettings();
+    document.body.classList.toggle('in-workout', view === 'train' && !!S.active && !S.summary);
     document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     renderTimer();
   }
@@ -673,6 +741,7 @@
   document.addEventListener('touchstart', unlockAudio, { passive: true });
   document.addEventListener('click', ev => {
     unlockAudio();
+    if (Date.now() - lastSwipe < 400) return;
     const b = ev.target.closest('[data-act],[data-view]');
     if (!b) return;
     if (b.dataset.view) { view = b.dataset.view; render(); window.scrollTo(0, 0); return; }
@@ -696,7 +765,7 @@
         // folgende Sätze mit gleichem Gewicht vorbelegen
         ent.sets.forEach((x, j) => { if (j > i && !x.done) x.w = s.w; });
         const firstIdx = ent.sets.findIndex(x => x.done);
-        if (firstIdx === i && !A.deload && !ent.sub && (ent.intra === null || ent.intra === undefined)) {
+        if (firstIdx === i && !A.deload && !ent.sub && !e.extra && (ent.intra === null || ent.intra === undefined)) {
           const sug = L.intraSuggest(e, s, A.order.indexOf(id));
           if (sug != null && sug < s.w && ent.sets.some(x => !x.done)) ent.intra = sug;
         }
@@ -710,6 +779,16 @@
         break;
       }
       case 'open': A.openId = id; save(); render(); { const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
+      case 'addset': {
+        const ent = A.entries[id]; const e = ex(id);
+        const last = ent.sets[ent.sets.length - 1] || { w: e.weight, r: e.lo, rpe: e.rpe };
+        ent.sets.push({ w: last.w, r: last.r, rpe: last.rpe, done: false });
+        A.openId = id; save(); render(); break;
+      }
+      case 'addex': A.addOpen = true; save(); render(); { const c = document.querySelector('.addpick'); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
+      case 'addclose': A.addOpen = false; save(); render(); break;
+      case 'addpick': addExtra(b.dataset.name); break;
+      case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
       case 'reviewok': S.settings.reviewSeen = b.dataset.key; save(); render(); break;
       case 'swapplan': {
         const e = ex(id); const old = e.name; const n = b.dataset.name;
@@ -766,6 +845,39 @@
       case 'reset': if (confirm('Wirklich alle Daten löschen? Vorher ein Backup machen!')) { S = fresh(); save(); render(); } break;
     }
   });
+  // Wischen nach links löscht einen Satz
+  let sw = null, lastSwipe = 0;
+  document.addEventListener('pointerdown', ev => {
+    const row = ev.target.closest('[data-swipe]'); if (!row || !S.active) return;
+    sw = { row, x0: ev.clientX, y0: ev.clientY, id: ev.pointerId, dx: 0, on: false };
+  });
+  document.addEventListener('pointermove', ev => {
+    if (!sw || ev.pointerId !== sw.id) return;
+    const dx = ev.clientX - sw.x0, dy = ev.clientY - sw.y0;
+    if (!sw.on) {
+      if (Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy) * 1.5 && dx < 0) { sw.on = true; try { sw.row.setPointerCapture(sw.id); } catch (e) {} if (document.activeElement) document.activeElement.blur(); }
+      else if (Math.abs(dy) > 12) { sw = null; return; }
+      else return;
+    }
+    ev.preventDefault();
+    sw.dx = Math.min(0, dx);
+    sw.row.style.transform = `translateX(${sw.dx}px)`;
+    sw.row.classList.toggle('swdel', sw.dx < -90);
+  }, { passive: false });
+  const endSwipe = ev => {
+    if (!sw || ev.pointerId !== sw.id) return;
+    const { row, on, dx } = sw; sw = null;
+    if (!on) return;
+    lastSwipe = Date.now();
+    if (dx < -90) {
+      const ent = S.active.entries[row.dataset.ex]; const list = row.dataset.swipe === 'warm' ? ent.warm : ent.sets;
+      list.splice(+row.dataset.i, 1);
+      save(); render(); toast('Satz gelöscht');
+    } else { row.style.transform = ''; row.classList.remove('swdel'); }
+  };
+  document.addEventListener('pointerup', endSwipe);
+  document.addEventListener('pointercancel', endSwipe);
+
   // Ziehen zum Sortieren (Reihenfolge ändern)
   let drag = null;
   document.addEventListener('pointerdown', ev => {
