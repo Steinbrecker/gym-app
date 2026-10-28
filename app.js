@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 8;
+  const APP_VERSION = 9;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -200,11 +200,20 @@
     const a = Math.abs(left);
     el.classList.add('show'); el.classList.toggle('done', done);
     el.querySelector('.t-time').textContent = (done ? '+' : '') + Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0');
-    el.querySelector('.t-label').textContent = done ? 'Pause vorbei – los geht\'s!' : 'Pause · ' + t.name;
     el.querySelector('.t-bar').style.width = Math.max(0, Math.min(100, (left / t.total) * 100)) + '%';
     if (done && !t.beeped) { t.beeped = true; beep(); save(); }
   }
   setInterval(renderTimer, 250);
+  // Wenn die iOS-Tastatur offen ist, Timer direkt darüber anzeigen
+  function placeTimer() {
+    const vv = window.visualViewport; const el = $('#timer'); if (!vv || !el) return;
+    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    if (kb > 80) { el.style.bottom = (kb + 8) + 'px'; document.body.classList.add('kb'); }
+    else { el.style.bottom = ''; document.body.classList.remove('kb'); }
+  }
+  if (window.visualViewport) { visualViewport.addEventListener('resize', placeTimer); visualViewport.addEventListener('scroll', placeTimer); }
+  document.addEventListener('focusin', () => setTimeout(placeTimer, 300));
+  document.addEventListener('focusout', () => setTimeout(placeTimer, 300));
 
   // ---------- Bildschirm anlassen ----------
   let wake = null;
@@ -231,7 +240,7 @@
     save(); render(); window.scrollTo(0, 0);
   }
   function saveSummary() {
-    const A = S.active; const now = new Date().toISOString();
+    const A = S.active; const now = isStale() ? (A.lastActivity || A.startedAt) : new Date().toISOString();
     S.summary.items.forEach(it => {
       if (it.skipped) return;
       const e = ex(it.id);
@@ -341,29 +350,71 @@
       <div class="muted small center">Version ${APP_VERSION}</div>`;
   }
 
+  const STALE = 2 * 3600e3; // 2 h ohne neuen Satz = vergessenes Training
+  function isStale() {
+    const A = S.active; if (!A) return false;
+    const last = A.lastActivity || A.startedAt;
+    return Date.now() - new Date(last) > STALE;
+  }
   function elapsed() {
     const A = S.active; if (!A) return '';
-    const t = Math.max(0, Math.floor((Date.now() - new Date(A.startedAt)) / 1000));
+    const end = isStale() ? new Date(A.lastActivity || A.startedAt).getTime() : Date.now();
+    const t = Math.max(0, Math.floor((end - new Date(A.startedAt)) / 1000));
     const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : String(m).padStart(2, '0')) + ':' + String(sec).padStart(2, '0');
   }
   setInterval(() => { const el = document.getElementById('stopwatch'); if (el) el.textContent = elapsed(); }, 1000);
 
   function renderActive() {
-    const A = S.active; const day = dayById(A.dayId);
+    const A = S.active;
     const total = A.order.reduce((a, id) => a + A.entries[id].sets.length, 0);
     const doneN = A.order.reduce((a, id) => a + A.entries[id].sets.filter(s => s.done).length, 0);
+    const cur = currentEx(); const pos = A.order.indexOf(cur);
+    const nextId = A.order.slice(pos + 1).find(id => A.entries[id].sets.some(s => !s.done)) || A.order.find((id, i) => i !== pos && A.entries[id].sets.some(s => !s.done));
+    const stale = isStale();
     return `
       <div class="topbar"><div class="tb-in">
-        <div class="tb-title">${A.deload ? 'Deload · ' : ''}${esc(day.name)}</div>
-        <div class="tb-time" id="stopwatch">${elapsed()}</div>
+        <button class="tb-btn" data-act="cancel" aria-label="Training verwerfen"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <div class="tb-time ${stale ? 'stale' : ''}" id="stopwatch">${elapsed()}</div>
+        <button class="tb-btn ok" data-act="finish" aria-label="Training beenden"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></button>
       </div><div class="tb-prog"><div style="width:${total ? (doneN / total) * 100 : 0}%"></div></div></div>
       <div class="tb-space"></div>
-      ${A.order.map((id, pos) => id === currentEx() ? renderExCard(id, pos) : renderCollapsed(id)).join('')}
-      ${A.addOpen ? renderAddPicker() : '<button class="card addex" data-act="addex">+ Übung hinzufügen</button>'}
-      <button class="btn primary big" data-act="finish">Training beenden</button>
-      <button class="btn ghost danger" data-act="cancel">Training verwerfen</button>
-      ${A.reorder ? renderReorder() : ''}`;
+      ${stale ? `<div class="note warn">Dieses Training vom ${dateDE(A.startedAt)} ist noch offen. <button class="link" data-act="finish">Speichern</button> <button class="link muted" data-act="cancel">Verwerfen</button></div>` : ''}
+      ${renderExCard(cur, pos)}
+      <div class="focusfoot">
+        <span class="muted small">${nextId ? 'Als Nächstes: ' + esc(exName(nextId)) : 'Letzte Übung'}</span>
+        <button class="link" data-act="overview">Übersicht</button>
+      </div>
+      ${A.overview ? renderOverview() : ''}
+      ${A.setMenu ? renderSetMenu() : ''}`;
+  }
+  function exName(id) { const ent = S.active.entries[id]; return ent.sub ? ent.sub.name : ex(id).name; }
+
+  function renderOverview() {
+    const A = S.active; const cur = currentEx();
+    return `<div class="overlay" data-act="overviewclose"><div class="sheet" data-stop="1">
+      <div class="sheet-title">Übersicht</div>
+      <ul class="rlist" id="rlist">
+        ${A.order.map(id => { const e = ex(id); const ent = A.entries[id]; const d = ent.sets.filter(s => s.done).length; const n = ent.sets.length;
+          return `<li data-id="${id}" class="${id === cur ? 'rcur' : ''} ${d === n ? 'rdone' : ''}">
+            <span class="tag t${e.type}">${e.type}</span>
+            <button class="rname" data-act="jump" data-ex="${id}">${esc(exName(id))}</button>
+            <span class="rstat">${d === n ? '<b class="good">✓</b>' : d + '/' + n}</span>
+            <span class="handle" aria-label="Ziehen">☰</span></li>`; }).join('')}
+      </ul>
+      ${A.addOpen ? renderAddPicker() : '<button class="btn" data-act="addex">+ Übung hinzufügen</button>'}
+      <button class="btn primary" data-act="overviewclose">Schließen</button>
+    </div></div>`;
+  }
+
+  function renderSetMenu() {
+    const m = S.active.setMenu;
+    return `<div class="overlay" data-act="setmenuclose"><div class="sheet small" data-stop="1">
+      <div class="sheet-title">Satz ${m.kind === 'warm' ? 'W' : m.i + 1}</div>
+      <button class="btn ${m.kind === 'warm' ? 'primary' : ''}" data-act="settype" data-type="warm">Aufwärmsatz</button>
+      <button class="btn ${m.kind === 'set' ? 'primary' : ''}" data-act="settype" data-type="set">Arbeitssatz</button>
+      <button class="btn ghost" data-act="setmenuclose">Abbrechen</button>
+    </div></div>`;
   }
 
   function renderAddPicker() {
@@ -390,21 +441,8 @@
     const w = (S.subWeights || {})[name] != null ? S.subWeights[name] : (last && last.sets.length ? last.sets[0].w : (tpl ? tpl.weight : null));
     A.extra[id] = Object.assign({ id, name, extra: true, weight: null, misses: 0, reductions: [] }, base);
     A.entries[id] = { sets: Array.from({ length: base.sets }, () => ({ w, r: base.lo, rpe: base.rpe, done: false })), warm: [] };
-    A.order.push(id); A.openId = id; A.addOpen = false;
-    save(); render();
-    const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  }
-
-  function renderReorder() {
-    const A = S.active;
-    return `<div class="overlay"><div class="sheet">
-      <div class="sheet-title">Reihenfolge ändern</div>
-      <ul class="rlist" id="rlist">
-        ${A.order.map(id => { const e = ex(id); const ent = A.entries[id]; const done = ent.sets.every(s => s.done);
-          return `<li data-id="${id}" class="${done ? 'rdone' : ''}"><span class="tag t${e.type}">${e.type}</span><span class="rname">${esc(ent.sub ? ent.sub.name : e.name)}</span><span class="handle" aria-label="Ziehen">☰</span></li>`; }).join('')}
-      </ul>
-      <button class="btn primary" data-act="reorderdone">Fertig</button>
-    </div></div>`;
+    A.order.push(id); A.openId = id; A.addOpen = false; A.overview = false;
+    save(); render(); window.scrollTo(0, 0);
   }
 
   function noteKey(id) { const ent = S.active.entries[id]; return ent.sub ? ent.sub.name : ex(id).name; }
@@ -437,7 +475,12 @@
     const alts = altsFor(id).filter(a => !sub || a !== sub.name);
     const note = (S.notes || {})[noteKey(id)];
     return `
-      <article class="card ${allDone ? 'complete' : ''}" id="card-${id}">
+      <article class="card focus ${allDone ? 'complete' : ''}" id="card-${id}">
+        <div class="fnav">
+          <button class="arrow" data-act="prevex" ${pos <= 0 ? 'disabled' : ''} aria-label="Vorherige Übung">‹</button>
+          <span class="muted small">${pos + 1} / ${S.active.order.length}</span>
+          <button class="arrow" data-act="nextex" ${pos >= S.active.order.length - 1 ? 'disabled' : ''} aria-label="Nächste Übung">›</button>
+        </div>
         <header>
           <span class="tag t${e.type}">${e.type}</span>
           <div class="ctitle"><h2>${esc(sub ? sub.name : e.name)}</h2>
@@ -447,7 +490,6 @@
         </header>
         ${ent.menu ? `<div class="cactions">
           <button data-act="noteedit" data-ex="${id}">✎ Notiz</button>
-          <button data-act="reorder" data-ex="${id}">☰ Reihenfolge</button>
           ${!anyDone ? `<button data-act="subopen" data-ex="${id}">⇄ ${sub ? 'Andere' : 'Ersetzen'}</button>` : ''}
           ${!anyDone && sub ? `<button data-act="subundo" data-ex="${id}">↺ Original</button>` : ''}
         </div>` : ''}
@@ -476,7 +518,7 @@
   function renderWarm(id, w, i) {
     return `
       <div class="set warmrow ${w.done ? 'done' : ''}" data-swipe="warm" data-ex="${id}" data-i="${i}">
-        <div class="sn w">W</div>
+        <button class="sn w" data-act="setmenu" data-kind="warm" data-ex="${id}" data-i="${i}">W</button>
         <span class="prev"></span>
         <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.we || w.done ? fmt(w.w) : ''}" placeholder="${fmt(w.w)}">
         <input class="cell" inputmode="numeric" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.re || w.done ? w.r : ''}" placeholder="${w.r}">
@@ -488,7 +530,7 @@
   function renderSet(id, s, i, p) {
     return `
       <div class="set ${s.done ? 'done' : ''}" data-swipe="set" data-ex="${id}" data-i="${i}">
-        <div class="sn">${i + 1}</div>
+        <button class="sn" data-act="setmenu" data-kind="set" data-ex="${id}" data-i="${i}">${i + 1}</button>
         ${prevCell(p)}
         <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${(s.we || s.done) && s.w != null ? fmt(s.w) : ''}" placeholder="${s.w == null ? 'kg' : fmt(s.w)}">
         <input class="cell" inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${(s.re || s.done) && s.r != null ? s.r : ''}" placeholder="${s.r == null ? '' : s.r}">
@@ -759,7 +801,7 @@
         const ent = A.entries[id]; const s = ent.sets[i];
         if (s.done) { s.done = false; save(); render(); break; }
         if (s.w == null || s.w === '' || isNaN(s.w)) { toast('Bitte Gewicht eintragen'); break; }
-        s.done = true;
+        s.done = true; A.lastActivity = new Date().toISOString();
         const e = ex(id);
         if (!e.weight && !ent.sub) e.weight = s.w;
         // folgende Sätze mit gleichem Gewicht vorbelegen
@@ -775,17 +817,35 @@
         if (ent.sets.every(x => x.done) && A.openId === id) A.openId = null;
         save(); render();
         const after = currentEx();
-        if (after !== before) { const c = document.getElementById('card-' + after); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+        if (after !== before) window.scrollTo(0, 0);
         break;
       }
       case 'open': A.openId = id; save(); render(); { const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
+      case 'prevex': case 'nextex': {
+        const cur = currentEx(); const k = A.order.indexOf(cur) + (act === 'nextex' ? 1 : -1);
+        if (k >= 0 && k < A.order.length) { A.openId = A.order[k]; save(); render(); window.scrollTo(0, 0); }
+        break;
+      }
+      case 'overview': A.overview = true; A.addOpen = false; save(); render(); break;
+      case 'overviewclose': if (ev.target.closest('[data-stop]') && b.dataset.act === 'overviewclose' && b.classList.contains('overlay')) break; A.overview = false; A.addOpen = false; save(); render(); break;
+      case 'jump': A.openId = id; A.overview = false; save(); render(); window.scrollTo(0, 0); break;
+      case 'setmenu': A.setMenu = { ex: id, kind: b.dataset.kind, i }; save(); render(); break;
+      case 'setmenuclose': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; A.setMenu = null; save(); render(); break;
+      case 'settype': {
+        const m = A.setMenu; const ent = A.entries[m.ex]; const e = ex(m.ex);
+        if (b.dataset.type !== m.kind) {
+          if (m.kind === 'set') { const s0 = ent.sets.splice(m.i, 1)[0]; ent.warm.push({ w: s0.w, r: s0.r, done: s0.done, we: s0.we, re: s0.re }); }
+          else { const w0 = ent.warm.splice(m.i, 1)[0]; ent.sets.unshift({ w: w0.w, r: w0.r, rpe: e.rpe, done: w0.done, we: w0.we, re: w0.re }); }
+        }
+        A.setMenu = null; save(); render(); break;
+      }
       case 'addset': {
         const ent = A.entries[id]; const e = ex(id);
         const last = ent.sets[ent.sets.length - 1] || { w: e.weight, r: e.lo, rpe: e.rpe };
         ent.sets.push({ w: last.w, r: last.r, rpe: last.rpe, done: false });
         A.openId = id; save(); render(); break;
       }
-      case 'addex': A.addOpen = true; save(); render(); { const c = document.querySelector('.addpick'); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
+      case 'addex': A.addOpen = true; save(); render(); break;
       case 'addclose': A.addOpen = false; save(); render(); break;
       case 'addpick': addExtra(b.dataset.name); break;
       case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
@@ -825,7 +885,7 @@
         break;
       }
       case 'subundo': setSub(id, null); break;
-      case 'warm': { const w = A.entries[id].warm[i]; w.done = !w.done; save(); render(); break; }
+      case 'warm': { const w = A.entries[id].warm[i]; w.done = !w.done; A.lastActivity = new Date().toISOString(); save(); render(); break; }
       case 'togglewarm': { A.entries[id].showWarm = !A.entries[id].showWarm; save(); render(); break; }
       case 'intra': { const ent = A.entries[id]; ent.sets.forEach(x => { if (!x.done) x.w = ent.intra; }); ent.intra = false; save(); render(); break; }
       case 'intrano': { A.entries[id].intra = false; save(); render(); break; }
@@ -834,7 +894,7 @@
         if (!any) { toast('Noch kein Satz erledigt'); break; }
         finishWorkout(); break;
       }
-      case 'cancel': if (confirm('Training verwerfen? Nichts wird gespeichert.')) { S.active = null; S.summary = null; save(); render(); } break;
+      case 'cancel': if (confirm('Training wirklich verwerfen? Es wird nicht gespeichert.')) { S.active = null; S.summary = null; save(); render(); } break;
       case 'savesum': saveSummary(); window.scrollTo(0, 0); break;
       case 'backtowork': S.summary = null; save(); render(); break;
       case 't-minus': adjustTimer(-15); break;

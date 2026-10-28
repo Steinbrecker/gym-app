@@ -129,8 +129,8 @@ details.erow[open] .ename { margin-bottom: 10px; }
 #timer { position: fixed; left: 0; right: 0; bottom: calc(64px + var(--safe-b)); margin: 0 auto; max-width: 560px; padding: 0 12px; transform: translateY(calc(100% + 90px)); visibility: hidden; transition: transform .25s, visibility 0s .25s; z-index: 5; pointer-events: none; }
 #timer.show { transform: none; visibility: visible; transition: transform .25s; pointer-events: auto; }
 #timer > * { pointer-events: auto; }
-#timer .t-row { display: flex; align-items: center; gap: 8px; background: #1d2129; border: 1px solid var(--line); border-radius: 0 0 18px 18px; padding: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
-#timer .t-bar { height: 4px; background: var(--accent); border-radius: 18px 18px 0 0; transition: width .25s linear; }
+#timer .t-row { position: relative; display: flex; align-items: center; gap: 8px; background: #1d2129; border: 1px solid var(--line); border-radius: 18px; padding: 12px 10px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.5); }
+#timer .t-bar { position: absolute; top: 0; left: 0; height: 4px; background: var(--accent); transition: width .25s linear; }
 #timer button { flex: none; height: 48px; min-width: 50px; padding: 0 8px; border: 0; border-radius: 12px; background: var(--panel2); color: var(--text); font: inherit; font-weight: 700; }
 #timer .t-skip { min-width: 44px; color: var(--muted); }
 #timer .t-mid { flex: 1; min-width: 0; text-align: center; }
@@ -202,3 +202,26 @@ body.in-workout main { padding-top: calc(12px + var(--safe-t)); }
 .howto summary::-webkit-details-marker { display: none; }
 .howto ul { margin: 12px 0 0; padding-left: 18px; color: var(--text); font-size: 14px; }
 .howto li { margin-bottom: 8px; }
+
+/* Version 9: Fokus-Ansicht */
+.tb-in { justify-content: space-between; }
+.tb-time { flex: 1; text-align: center; font-size: 22px; color: var(--text); }
+.tb-time.stale { color: var(--muted); }
+.tb-btn { width: 40px; height: 40px; border: 0; border-radius: 12px; background: var(--panel2); display: grid; place-items: center; cursor: pointer; }
+.tb-btn svg { width: 22px; height: 22px; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.tb-btn.ok { background: var(--good); } .tb-btn.ok svg { stroke: #0b2415; }
+.card.focus { padding-top: 8px; }
+.fnav { display: flex; align-items: center; justify-content: space-between; margin: 0 -6px 4px; }
+.arrow { width: 40px; height: 34px; border: 0; background: none; color: var(--text); font-size: 28px; line-height: 1; cursor: pointer; }
+.arrow:disabled { opacity: .2; }
+.focusfoot { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 4px 0; }
+button.sn { border: 0; color: var(--text); font: inherit; font-weight: 800; padding: 0; cursor: pointer; }
+button.sn.w { color: var(--warn); }
+.rlist .rname { flex: 1; text-align: left; background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; padding: 4px 0; cursor: pointer; }
+.rlist .rstat { color: var(--muted); font-size: 13px; }
+.rlist li.rcur { background: var(--panel2); border-radius: 12px; }
+.rlist li.rdone .rname { color: var(--muted); }
+.sheet .btn { margin-top: 10px; }
+.sheet.small { padding-bottom: calc(24px + var(--safe-b)); }
+.sheet .addpick { margin-top: 12px; background: var(--panel2); }
+body.kb nav { display: none; }
