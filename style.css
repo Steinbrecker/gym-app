@@ -225,3 +225,13 @@ button.sn.w { color: var(--warn); }
 .sheet.small { padding-bottom: calc(24px + var(--safe-b)); }
 .sheet .addpick { margin-top: 12px; background: var(--panel2); }
 body.kb nav { display: none; }
+
+/* Version 10 */
+.tb-space { height: 74px; }
+.counter { border: 1px solid var(--line); background: var(--panel2); color: var(--text); font: inherit; font-size: 14px; font-weight: 700; padding: 6px 16px; border-radius: 999px; cursor: pointer; }
+/* Im Training scrollt nur der Inhalt – und nur wenn nötig */
+body.in-workout { overflow: hidden; height: 100%; }
+body.in-workout main { position: fixed; top: 0; bottom: 0; left: 0; right: 0; margin: 0 auto; overflow-y: auto; overscroll-behavior: none; -webkit-overflow-scrolling: touch; padding-bottom: calc(84px + var(--safe-b)); }
+body.in-workout.timer-on main { padding-bottom: calc(170px + var(--safe-b)); }
+body.kb #timer { bottom: 8px; }
+#toast { display: flex; align-items: center; gap: 10px; white-space: nowrap; }

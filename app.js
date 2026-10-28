@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 9;
+  const APP_VERSION = 10;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -67,11 +67,16 @@
   const dateDE = iso => new Date(iso).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
   const typeLabel = { H: 'Haupt', A: 'Assistenz', I: 'Isolation' };
 
-  function toast(msg) {
+  function toTop() { const m = document.getElementById('main'); if (m) m.scrollTop = 0; window.scrollTo(0, 0); }
+  let undoFn = null;
+  function toast(msg, undo) {
     const t = $('#toast');
-    t.textContent = msg; t.classList.add('show');
-    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600);
+    undoFn = undo || null;
+    t.innerHTML = esc(msg) + (undo ? ' <button class="link" data-act="undo">Rückgängig</button>' : '');
+    t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => { t.classList.remove('show'); undoFn = null; }, undo ? 3000 : 2600);
   }
+
 
   function nextDayId() {
     const ids = S.plan.days.map(d => d.id);
@@ -194,6 +199,7 @@
   function renderTimer() {
     const el = $('#timer');
     const t = S.active && S.active.timer;
+    document.body.classList.toggle('timer-on', !!t);
     if (!t) { el.classList.remove('show', 'done'); return; }
     const left = Math.round((t.end - Date.now()) / 1000);
     const done = left <= 0;
@@ -205,15 +211,24 @@
   }
   setInterval(renderTimer, 250);
   // Wenn die iOS-Tastatur offen ist, Timer direkt darüber anzeigen
+  // Tastatur: untere Leiste ausblenden (bleibt "hinter" der Tastatur), Pausentimer direkt darüber
+  let baseH = window.innerHeight;
+  const typing = () => { const a = document.activeElement; return !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
   function placeTimer() {
-    const vv = window.visualViewport; const el = $('#timer'); if (!vv || !el) return;
-    const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-    if (kb > 80) { el.style.bottom = (kb + 8) + 'px'; document.body.classList.add('kb'); }
-    else { el.style.bottom = ''; document.body.classList.remove('kb'); }
+    const vv = window.visualViewport; const el = $('#timer');
+    if (!typing()) baseH = Math.max(window.innerHeight, vv ? vv.height : 0);
+    const open = typing();
+    document.body.classList.toggle('kb', open);
+    if (!el) return;
+    if (open && vv) {
+      // Abstand vom unteren Rand des Layouts bis zur Oberkante der Tastatur
+      const gap = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+      el.style.bottom = (gap + 8) + 'px';
+    } else el.style.bottom = '';
   }
   if (window.visualViewport) { visualViewport.addEventListener('resize', placeTimer); visualViewport.addEventListener('scroll', placeTimer); }
-  document.addEventListener('focusin', () => setTimeout(placeTimer, 300));
-  document.addEventListener('focusout', () => setTimeout(placeTimer, 300));
+  document.addEventListener('focusin', () => { placeTimer(); setTimeout(placeTimer, 350); });
+  document.addEventListener('focusout', () => setTimeout(placeTimer, 50));
 
   // ---------- Bildschirm anlassen ----------
   let wake = null;
@@ -237,7 +252,7 @@
     });
     S.summary = { items };
     A.timer = null;
-    save(); render(); window.scrollTo(0, 0);
+    save(); render(); toTop();
   }
   function saveSummary() {
     const A = S.active; const now = isStale() ? (A.lastActivity || A.startedAt) : new Date().toISOString();
@@ -370,7 +385,6 @@
     const total = A.order.reduce((a, id) => a + A.entries[id].sets.length, 0);
     const doneN = A.order.reduce((a, id) => a + A.entries[id].sets.filter(s => s.done).length, 0);
     const cur = currentEx(); const pos = A.order.indexOf(cur);
-    const nextId = A.order.slice(pos + 1).find(id => A.entries[id].sets.some(s => !s.done)) || A.order.find((id, i) => i !== pos && A.entries[id].sets.some(s => !s.done));
     const stale = isStale();
     return `
       <div class="topbar"><div class="tb-in">
@@ -381,10 +395,6 @@
       <div class="tb-space"></div>
       ${stale ? `<div class="note warn">Dieses Training vom ${dateDE(A.startedAt)} ist noch offen. <button class="link" data-act="finish">Speichern</button> <button class="link muted" data-act="cancel">Verwerfen</button></div>` : ''}
       ${renderExCard(cur, pos)}
-      <div class="focusfoot">
-        <span class="muted small">${nextId ? 'Als Nächstes: ' + esc(exName(nextId)) : 'Letzte Übung'}</span>
-        <button class="link" data-act="overview">Übersicht</button>
-      </div>
       ${A.overview ? renderOverview() : ''}
       ${A.setMenu ? renderSetMenu() : ''}`;
   }
@@ -442,7 +452,7 @@
     A.extra[id] = Object.assign({ id, name, extra: true, weight: null, misses: 0, reductions: [] }, base);
     A.entries[id] = { sets: Array.from({ length: base.sets }, () => ({ w, r: base.lo, rpe: base.rpe, done: false })), warm: [] };
     A.order.push(id); A.openId = id; A.addOpen = false; A.overview = false;
-    save(); render(); window.scrollTo(0, 0);
+    save(); render(); toTop();
   }
 
   function noteKey(id) { const ent = S.active.entries[id]; return ent.sub ? ent.sub.name : ex(id).name; }
@@ -478,7 +488,7 @@
       <article class="card focus ${allDone ? 'complete' : ''}" id="card-${id}">
         <div class="fnav">
           <button class="arrow" data-act="prevex" ${pos <= 0 ? 'disabled' : ''} aria-label="Vorherige Übung">‹</button>
-          <span class="muted small">${pos + 1} / ${S.active.order.length}</span>
+          <button class="counter" data-act="overview" aria-label="Übersicht">${pos + 1} / ${S.active.order.length}</button>
           <button class="arrow" data-act="nextex" ${pos >= S.active.order.length - 1 ? 'disabled' : ''} aria-label="Nächste Übung">›</button>
         </div>
         <header>
@@ -520,8 +530,8 @@
       <div class="set warmrow ${w.done ? 'done' : ''}" data-swipe="warm" data-ex="${id}" data-i="${i}">
         <button class="sn w" data-act="setmenu" data-kind="warm" data-ex="${id}" data-i="${i}">W</button>
         <span class="prev"></span>
-        <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.we || w.done ? fmt(w.w) : ''}" placeholder="${fmt(w.w)}">
-        <input class="cell" inputmode="numeric" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.re || w.done ? w.r : ''}" placeholder="${w.r}">
+        <input class="cell" inputmode="decimal" enterkeyhint="done" autocomplete="off" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.we || w.done ? fmt(w.w) : ''}" placeholder="${fmt(w.w)}">
+        <input class="cell" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.re || w.done ? w.r : ''}" placeholder="${w.r}">
         <span></span>
         <button class="check" data-act="warm" data-ex="${id}" data-i="${i}" aria-label="Aufwärmsatz erledigt">✓</button>
       </div>`;
@@ -532,8 +542,8 @@
       <div class="set ${s.done ? 'done' : ''}" data-swipe="set" data-ex="${id}" data-i="${i}">
         <button class="sn" data-act="setmenu" data-kind="set" data-ex="${id}" data-i="${i}">${i + 1}</button>
         ${prevCell(p)}
-        <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${(s.we || s.done) && s.w != null ? fmt(s.w) : ''}" placeholder="${s.w == null ? 'kg' : fmt(s.w)}">
-        <input class="cell" inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${(s.re || s.done) && s.r != null ? s.r : ''}" placeholder="${s.r == null ? '' : s.r}">
+        <input class="cell" inputmode="decimal" enterkeyhint="done" autocomplete="off" data-field="w" data-ex="${id}" data-i="${i}" value="${(s.we || s.done) && s.w != null ? fmt(s.w) : ''}" placeholder="${s.w == null ? 'kg' : fmt(s.w)}">
+        <input class="cell" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" autocomplete="off" data-field="r" data-ex="${id}" data-i="${i}" value="${(s.re || s.done) && s.r != null ? s.r : ''}" placeholder="${s.r == null ? '' : s.r}">
         <select class="cell" data-field="rpe" data-ex="${id}" data-i="${i}" aria-label="RPE">
           ${RPES.map(r => `<option value="${r}" ${s.rpe === r ? 'selected' : ''}>${fmt(r)}</option>`).join('')}
         </select>
@@ -786,11 +796,11 @@
     if (Date.now() - lastSwipe < 400) return;
     const b = ev.target.closest('[data-act],[data-view]');
     if (!b) return;
-    if (b.dataset.view) { view = b.dataset.view; render(); window.scrollTo(0, 0); return; }
+    if (b.dataset.view) { view = b.dataset.view; render(); toTop(); return; }
     const act = b.dataset.act; const id = b.dataset.ex; const i = +b.dataset.i;
     const A = S.active;
     switch (act) {
-      case 'start': startWorkout(b.dataset.day, !!b.dataset.deload); window.scrollTo(0, 0); break;
+      case 'start': startWorkout(b.dataset.day, !!b.dataset.deload); toTop(); break;
       case 'w': case 'r': {
         const s = A.entries[id].sets[i]; const e = ex(id); const d = +b.dataset.d;
         if (act === 'w') s.w = s.w == null ? ((!A.entries[id].sub && e.weight) || 0) : L.addSteps(e, s.w, d);
@@ -817,18 +827,18 @@
         if (ent.sets.every(x => x.done) && A.openId === id) A.openId = null;
         save(); render();
         const after = currentEx();
-        if (after !== before) window.scrollTo(0, 0);
+        if (after !== before) toTop();
         break;
       }
       case 'open': A.openId = id; save(); render(); { const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
       case 'prevex': case 'nextex': {
         const cur = currentEx(); const k = A.order.indexOf(cur) + (act === 'nextex' ? 1 : -1);
-        if (k >= 0 && k < A.order.length) { A.openId = A.order[k]; save(); render(); window.scrollTo(0, 0); }
+        if (k >= 0 && k < A.order.length) { A.openId = A.order[k]; save(); render(); toTop(); }
         break;
       }
       case 'overview': A.overview = true; A.addOpen = false; save(); render(); break;
       case 'overviewclose': if (ev.target.closest('[data-stop]') && b.dataset.act === 'overviewclose' && b.classList.contains('overlay')) break; A.overview = false; A.addOpen = false; save(); render(); break;
-      case 'jump': A.openId = id; A.overview = false; save(); render(); window.scrollTo(0, 0); break;
+      case 'jump': A.openId = id; A.overview = false; save(); render(); toTop(); break;
       case 'setmenu': A.setMenu = { ex: id, kind: b.dataset.kind, i }; save(); render(); break;
       case 'setmenuclose': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; A.setMenu = null; save(); render(); break;
       case 'settype': {
@@ -849,6 +859,7 @@
       case 'addclose': A.addOpen = false; save(); render(); break;
       case 'addpick': addExtra(b.dataset.name); break;
       case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
+      case 'undo': { const f = undoFn; undoFn = null; $('#toast').classList.remove('show'); if (f) f(); break; }
       case 'reviewok': S.settings.reviewSeen = b.dataset.key; save(); render(); break;
       case 'swapplan': {
         const e = ex(id); const old = e.name; const n = b.dataset.name;
@@ -892,10 +903,12 @@
       case 'finish': {
         const any = A.order.some(oid => A.entries[oid].sets.some(x => x.done));
         if (!any) { toast('Noch kein Satz erledigt'); break; }
+        const open = A.order.reduce((n, oid) => n + A.entries[oid].sets.filter(x => !x.done).length, 0);
+        if (open && !confirm('Noch ' + open + (open === 1 ? ' Satz' : ' Sätze') + ' offen. Training trotzdem beenden? Offene Sätze werden nicht gespeichert.')) break;
         finishWorkout(); break;
       }
       case 'cancel': if (confirm('Training wirklich verwerfen? Es wird nicht gespeichert.')) { S.active = null; S.summary = null; save(); render(); } break;
-      case 'savesum': saveSummary(); window.scrollTo(0, 0); break;
+      case 'savesum': saveSummary(); toTop(); break;
       case 'backtowork': S.summary = null; save(); render(); break;
       case 't-minus': adjustTimer(-15); break;
       case 't-plus': adjustTimer(15); break;
@@ -931,8 +944,9 @@
     lastSwipe = Date.now();
     if (dx < -90) {
       const ent = S.active.entries[row.dataset.ex]; const list = row.dataset.swipe === 'warm' ? ent.warm : ent.sets;
-      list.splice(+row.dataset.i, 1);
-      save(); render(); toast('Satz gelöscht');
+      const k = +row.dataset.i; const removed = list.splice(k, 1)[0];
+      save(); render();
+      toast('Satz gelöscht', () => { if (S.active && S.active.entries[row.dataset.ex]) { list.splice(k, 0, removed); save(); render(); } });
     } else { row.style.transform = ''; row.classList.remove('swdel'); }
   };
   document.addEventListener('pointerup', endSwipe);
