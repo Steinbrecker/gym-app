@@ -248,6 +248,48 @@
     return Object.values(sessions).sort((a, b) => a.date.localeCompare(b.date));
   }
 
+  // ---------- Liftosaur-CSV ----------
+  // Liftosaur-Übungsname -> Plan-Übung (id). Name kommt aus dem aktuellen Plan, damit Tausche berücksichtigt sind.
+  const LIFTO = {
+    'Bench Press': 'bench', 'T Bar Row': 'tbar', 'Incline Bench Press, Dumbbell': 'inclinedb', 'Lat Pulldown': 'pulldown',
+    'Overhead Press': 'ohp', 'Bicep Curl, Barbell': 'bbcurl', 'Triceps Extension': 'ohtri', 'Squat': 'squat', 'Deadlift': 'deadlift',
+    'Leg Press': 'legpress', 'Lying Leg Curl': 'legcurl_p', 'Seated Calf Raise, Leverage Machine': 'calfseat',
+    'Incline Chest Press, Leverage Machine': 'inclinepress', 'Seated Row, Leverage Machine': 'isorow', 'Chest Fly, Leverage Machine': 'butterfly',
+    'High Row': 'highrow', 'Lateral Raise': 'lateral', 'Incline Curl': 'inclinecurl', 'Triceps Pushdown': 'pushdown',
+    'Leg Extension': 'legext', 'Hip Adductor': 'adductor', 'Hip Abductor': 'abductor',
+  };
+  function liftosaurToSessions(text, plan) {
+    const rows = parseCSV(text);
+    const head = rows.shift().map(h => h.trim());
+    const ix = n => head.indexOf(n);
+    const I = { dt: ix('Workout DateTime'), prog: ix('Program'), day: ix('Day Name'), ex: ix('Exercise'), warm: ix('Is Warmup Set?'), r: ix('Completed Reps'), rpe: ix('Completed RPE'), w: ix('Completed Weight Value'), u: ix('Completed Weight Unit') };
+    if (I.dt < 0 || I.ex < 0 || I.r < 0) throw new Error('Unbekanntes CSV-Format');
+    const sessions = {};
+    rows.forEach(r => {
+      const reps = parseInt(r[I.r], 10);
+      if (isNaN(reps)) return; // Satz nicht gemacht
+      const d = new Date(r[I.dt]); if (isNaN(d)) return;
+      const key = r[I.dt];
+      if (!sessions[key]) sessions[key] = { id: 'lifto-' + d.toISOString(), source: 'lifto', title: r[I.day] || r[I.prog] || 'Liftosaur', date: d.toISOString(), entries: [] };
+      const pid = LIFTO[r[I.ex]];
+      const name = pid && plan.exercises[pid] ? plan.exercises[pid].name : r[I.ex];
+      const s = sessions[key];
+      let e = s.entries.find(x => x.name === name);
+      if (!e) { e = { name, srcName: r[I.ex], sets: [] }; s.entries.push(e); }
+      let w = parseFloat(r[I.w]); if (isNaN(w)) w = 0;
+      if ((r[I.u] || '').toLowerCase() === 'lb') w = Math.round(w * 0.45359 * 10) / 10;
+      const rpe = parseFloat(r[I.rpe]);
+      e.sets.push({ w, r: reps, rpe: isNaN(rpe) ? null : rpe, warmup: r[I.warm] === '1', done: true });
+    });
+    return Object.values(sessions).filter(s => s.entries.length).sort((a, b) => a.date.localeCompare(b.date));
+  }
+  function importCSV(text, plan) {
+    const first = text.slice(0, 500);
+    if (/Workout DateTime/.test(first)) return { source: 'Liftosaur', sessions: liftosaurToSessions(text, plan) };
+    if (/exercise_title/.test(first)) return { source: 'Hevy', sessions: hevyToSessions(text, plan) };
+    throw new Error('Unbekanntes Format – unterstützt werden Hevy und Liftosaur');
+  }
+
   // ---------- Statistik ----------
   function bestE1(sets) {
     let best = 0, top = null;
@@ -258,7 +300,7 @@
     return { e1: best, top };
   }
 
-  const api = { defaultPlan, stepOf, roundDown, roundNear, addSteps, e1rm, orderFor, warmups, evaluate, apply, targetReps, intraSuggest, parseCSV, parseHevyDate, hevyToSessions, bestE1 };
+  const api = { defaultPlan, stepOf, roundDown, roundNear, addSteps, e1rm, orderFor, warmups, evaluate, apply, targetReps, intraSuggest, parseCSV, parseHevyDate, hevyToSessions, liftosaurToSessions, importCSV, bestE1 };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Logic = api;
 })(this);

@@ -506,7 +506,9 @@
     // Kraft-Index: Ø aller Plan-Übungen, bestes e1RM der Woche relativ zum ersten Wert (= 100)
     const idxPts = [];
     const series = statNames().map(n => seriesFor(n)).filter(s => s.length);
-    buckets.forEach(bk => {
+    const firstT = Math.min(Date.now(), ...series.map(s => s[0].x.getTime()));
+    const idxWeeks = Math.min(104, Math.max(12, Math.ceil((Date.now() - firstT) / (7 * 864e5)) + 1));
+    weeklySets(idxWeeks).forEach(bk => {
       const to = bk.from.getTime() + 7 * 864e5; const ratios = [];
       series.forEach(s => {
         const upto = s.filter(p => p.x.getTime() < to);
@@ -519,7 +521,7 @@
     });
     const lastIdx = idxPts[idxPts.length - 1];
     const volNow = lastFull.vol;
-    const histRows = [...S.sessions.map(s => ({ date: s.date, title: (dayById(s.dayId) || {}).name + (s.deload ? ' (Deload)' : ''), n: s.entries.length })), ...S.hevy.map(s => ({ date: s.date, title: s.title + ' (Hevy)', n: s.entries.length }))].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
+    const histRows = [...S.sessions.map(s => ({ date: s.date, title: (dayById(s.dayId) || {}).name + (s.deload ? ' (Deload)' : ''), n: s.entries.length })), ...S.hevy.map(s => ({ date: s.date, title: s.title + (s.source === 'lifto' ? ' (Liftosaur)' : ' (Hevy)'), n: s.entries.length }))].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 15);
     return `
       <section class="hero small"><div class="eyebrow">Statistik</div><h1>Fortschritt</h1></section>
       <div class="card">
@@ -542,7 +544,7 @@
         </div>
         <div class="seg">${[[30, '1 M'], [90, '3 M'], [365, '1 J'], [0, 'Alles']].map(([d, l]) => `<button data-act="range" data-d="${d}" class="${statRange === d ? 'on' : ''}">${l}</button>`).join('')}</div>
         ${lineChart(pts)}
-        <div class="muted small">Geschätztes 1RM (bester Satz je Einheit). Helle Punkte = Hevy-Historie.</div>
+        <div class="muted small">Geschätztes 1RM (bester Satz je Einheit). Helle Punkte = importierte Historie (Hevy, Liftosaur).</div>
       </div>
       <div class="card">
         <h2>Harte Sätze pro Woche</h2>
@@ -565,8 +567,8 @@
         <h2>Daten</h2>
         <button class="btn" data-act="export">Backup exportieren</button>
         <label class="btn">Backup importieren<input type="file" accept=".json,application/json" data-file="backup" hidden></label>
-        <label class="btn">Hevy-CSV importieren<input type="file" accept=".csv,text/csv" data-file="hevy" hidden></label>
-        <div class="muted small">${S.hevy.length ? S.hevy.length + ' Hevy-Einheiten importiert. ' : ''}Letztes Backup: ${S.settings.lastBackup ? dateDE(S.settings.lastBackup) : 'noch nie'}. Daten liegen nur auf diesem Gerät.</div>
+        <label class="btn">Hevy- oder Liftosaur-CSV importieren<input type="file" accept=".csv,text/csv" data-file="hevy" hidden></label>
+        <div class="muted small">${S.hevy.length ? S.hevy.length + ' Einheiten importiert. ' : ''}Letztes Backup: ${S.settings.lastBackup ? dateDE(S.settings.lastBackup) : 'noch nie'}. Daten liegen nur auf diesem Gerät.</div>
       </div>
       ${S.plan.days.map(d => `
         <div class="card">
@@ -721,11 +723,19 @@
     }
     if (t.dataset.file === 'hevy') readFile(t, txt => {
       try {
-        const sess = L.hevyToSessions(txt, S.plan);
-        const have = new Set(S.hevy.map(s => s.id)); let n = 0;
-        sess.forEach(s => { if (!have.has(s.id)) { S.hevy.push(s); n++; } });
+        const res = L.importCSV(txt, S.plan);
+        const have = new Set(S.hevy.map(s => s.id));
+        // gleiche Einheit aus anderer Quelle (±90 min) nicht doppelt zählen
+        const times = S.hevy.concat(S.sessions).map(s => new Date(s.date).getTime());
+        let n = 0, dup = 0;
+        res.sessions.forEach(s => {
+          if (have.has(s.id)) return;
+          const t = new Date(s.date).getTime();
+          if (times.some(x => Math.abs(x - t) < 90 * 60000)) { dup++; return; }
+          S.hevy.push(s); n++;
+        });
         S.hevy.sort((a, b) => a.date.localeCompare(b.date));
-        save(); toast(n + ' Hevy-Einheiten importiert'); render();
+        save(); toast(n + ' ' + res.source + '-Einheiten importiert' + (dup ? ', ' + dup + ' doppelte übersprungen' : '')); render();
       } catch (e) { toast('Import fehlgeschlagen: ' + e.message); }
     });
     if (t.dataset.file === 'backup') readFile(t, txt => {
