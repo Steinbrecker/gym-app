@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 6;
+  const APP_VERSION = 7;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -41,7 +41,7 @@
   let S = load();
   let view = 'train';
   let statEx = null;
-  let statRange = 90;
+  let statRange = 0;
 
   function fresh() {
     return { v: 1, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString() } };
@@ -352,7 +352,7 @@
         <h1>${esc(day.name)}</h1>
         <div class="progress"><div style="width:${total ? (doneN / total) * 100 : 0}%"></div></div>
       </section>
-      ${A.order.map((id, pos) => renderExCard(id, pos)).join('')}
+      ${A.order.map((id, pos) => id === currentEx() ? renderExCard(id, pos) : renderCollapsed(id)).join('')}
       <button class="btn primary big" data-act="finish">Training beenden</button>
       <button class="btn ghost danger" data-act="cancel">Training verwerfen</button>
       ${A.reorder ? renderReorder() : ''}`;
@@ -371,6 +371,24 @@
   }
 
   function noteKey(id) { const ent = S.active.entries[id]; return ent.sub ? ent.sub.name : ex(id).name; }
+
+  // Aktuelle Übung: manuell geöffnete, sonst die erste mit offenen Sätzen
+  function currentEx() {
+    const A = S.active;
+    if (A.openId && A.order.includes(A.openId)) return A.openId;
+    return A.order.find(id => A.entries[id].sets.some(s => !s.done)) || A.order[A.order.length - 1];
+  }
+  function renderCollapsed(id) {
+    const e = ex(id); const ent = S.active.entries[id];
+    const done = ent.sets.filter(s => s.done).length; const n = ent.sets.length;
+    const all = done === n;
+    const info = all ? `${fmt(ent.sets[0].w)} kg · ${ent.sets.map(s => s.r).join(', ')}` : done ? `${done}/${n} Sätze` : (ent.sets[0].w != null ? `${n} × ${fmt(ent.sets[0].w)} kg` : `${n} Sätze`);
+    return `<button class="card collapsed ${all ? 'complete' : ''}" data-act="open" data-ex="${id}">
+      <span class="tag t${e.type}">${e.type}</span>
+      <span class="cname">${esc(ent.sub ? ent.sub.name : e.name)}</span>
+      <span class="cinfo">${all ? '<b class="good">✓</b> ' : ''}${esc(info)}</span>
+    </button>`;
+  }
 
   function renderExCard(id, pos) {
     const e = ex(id); const ent = S.active.entries[id];
@@ -422,8 +440,8 @@
       <div class="set warmrow ${w.done ? 'done' : ''}">
         <div class="sn w">W</div>
         <span class="prev"></span>
-        <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${fmt(w.w)}">
-        <input class="cell" inputmode="numeric" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.r}">
+        <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.we || w.done ? fmt(w.w) : ''}" placeholder="${fmt(w.w)}">
+        <input class="cell" inputmode="numeric" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.re || w.done ? w.r : ''}" placeholder="${w.r}">
         <span></span>
         <button class="check" data-act="warm" data-ex="${id}" data-i="${i}" aria-label="Aufwärmsatz erledigt">✓</button>
       </div>`;
@@ -434,8 +452,8 @@
       <div class="set ${s.done ? 'done' : ''}">
         <div class="sn">${i + 1}</div>
         ${prevCell(p)}
-        <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${s.w == null ? '' : fmt(s.w)}" placeholder="kg">
-        <input class="cell" inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${s.r == null ? '' : s.r}">
+        <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${(s.we || s.done) && s.w != null ? fmt(s.w) : ''}" placeholder="${s.w == null ? 'kg' : fmt(s.w)}">
+        <input class="cell" inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${(s.re || s.done) && s.r != null ? s.r : ''}" placeholder="${s.r == null ? '' : s.r}">
         <select class="cell" data-field="rpe" data-ex="${id}" data-i="${i}" aria-label="RPE">
           ${RPES.map(r => `<option value="${r}" ${s.rpe === r ? 'selected' : ''}>${fmt(r)}</option>`).join('')}
         </select>
@@ -591,7 +609,7 @@
   // ---------- Render: Einstellungen ----------
   function renderSettings() {
     return `
-      <section class="hero small"><div class="eyebrow">Einstellungen</div><h1>Plan & Daten</h1><div class="muted small">Normalerweise musst du hier nichts tun. Tippe eine Übung an, wenn du ein Gewicht von Hand korrigieren oder Sätze, Wdh-Bereich, RPE-Ziel oder Gewichtsschritt ändern willst.</div></section>
+      <section class="hero small"><div class="eyebrow">Einstellungen</div><h1>Plan & Daten</h1></section>
       <div class="card">
         <h2>Daten</h2>
         <button class="btn" data-act="export">Backup exportieren</button>
@@ -599,6 +617,8 @@
         <label class="btn">Hevy- oder Liftosaur-CSV importieren<input type="file" accept=".csv,text/csv" data-file="hevy" hidden></label>
         <div class="muted small">${S.hevy.length ? S.hevy.length + ' Einheiten importiert. ' : ''}Letztes Backup: ${S.settings.lastBackup ? dateDE(S.settings.lastBackup) : 'noch nie'}. Daten liegen nur auf diesem Gerät.</div>
       </div>
+      <details class="planedit"><summary class="btn">Plan bearbeiten</summary>
+      <div class="muted small pe-hint">Nur nötig, wenn du ohne Rückfrage etwas ändern willst: Gewicht korrigieren, Sätze, Wdh-Bereich, RPE-Ziel oder Gewichtsschritt einer Maschine.</div>
       ${S.plan.days.map(d => `
         <div class="card">
           <h2>${esc(d.name)}</h2>
@@ -615,6 +635,7 @@
               </div>
             </details>`; }).join('')}
         </div>`).join('')}
+      </details>
       <div class="card">
         <h2>Zurücksetzen</h2>
         <button class="btn ghost danger" data-act="reset">Alle Daten löschen</button>
@@ -681,8 +702,14 @@
         }
         const isLastOverall = A.order.every(oid => A.entries[oid].sets.every(x => x.done));
         if (!isLastOverall) startTimer(id); else stopTimer();
-        save(); render(); break;
+        const before = currentEx();
+        if (ent.sets.every(x => x.done) && A.openId === id) A.openId = null;
+        save(); render();
+        const after = currentEx();
+        if (after !== before) { const c = document.getElementById('card-' + after); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); }
+        break;
       }
+      case 'open': A.openId = id; save(); render(); { const c = document.getElementById('card-' + id); if (c) c.scrollIntoView({ block: 'start', behavior: 'smooth' }); } break;
       case 'reviewok': S.settings.reviewSeen = b.dataset.key; save(); render(); break;
       case 'swapplan': {
         const e = ex(id); const old = e.name; const n = b.dataset.name;
@@ -780,8 +807,8 @@
       const s = t.dataset.warm ? ent.warm[+t.dataset.i] : ent.sets[+t.dataset.i];
       const v = parseFloat(String(t.value).replace(',', '.'));
       if (t.dataset.field === 'rpe') s.rpe = v;
-      else if (t.dataset.field === 'w') s.w = isNaN(v) ? null : v;
-      else s.r = isNaN(v) ? 0 : Math.round(v);
+      else if (t.dataset.field === 'w') { if (!isNaN(v)) { s.w = v; s.we = true; } else s.we = false; }
+      else { if (!isNaN(v)) { s.r = Math.round(v); s.re = true; } else s.re = false; }
       save(); return;
     }
     if (t.dataset.sum != null && S.summary) {

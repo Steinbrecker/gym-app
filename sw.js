@@ -1,5 +1,5 @@
 // Offline-Cache. Bei jeder neuen Version VERSION hochzählen (gleich wie APP_VERSION in app.js).
-const VERSION = 'gym-v6';
+const VERSION = 'gym-v7';
 const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -152,3 +152,14 @@ nav button.on { color: var(--text); } nav button.on span { filter: none; opacity
 @media (max-width: 360px) {
   .set, .shead { grid-template-columns: 26px minmax(0, 1fr) 54px 42px 40px 38px; gap: 4px; }
 }
+
+/* Akkordeon im Training */
+.card.collapsed { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: var(--text); padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+.card.collapsed .cname { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card.collapsed .cinfo { flex: none; color: var(--muted); font-size: 13px; }
+.card.collapsed.complete { opacity: .7; }
+.cell::placeholder { color: rgba(238, 240, 244, .5); opacity: 1; }
+.planedit { margin-top: 4px; }
+.planedit > summary { list-style: none; margin-bottom: 10px; }
+.planedit > summary::-webkit-details-marker { display: none; }
+.pe-hint { margin: 0 2px 12px; }
