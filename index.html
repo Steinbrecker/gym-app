@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Gym</title>
+  <meta name="theme-color" content="#0f1115">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Gym">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="main"></main>
+
+  <div id="timer" aria-live="polite">
+    <div class="t-bar"></div>
+    <div class="t-row">
+      <button data-act="t-minus">−15</button>
+      <div class="t-mid"><div class="t-time">0:00</div><div class="t-label"></div></div>
+      <button data-act="t-plus">+15</button>
+      <button data-act="t-skip" class="t-skip" aria-label="Timer beenden">✕</button>
+    </div>
+  </div>
+
+  <nav>
+    <button data-view="train"><span>🏋️</span>Training</button>
+    <button data-view="stats"><span>📈</span>Statistik</button>
+    <button data-view="settings"><span>⚙️</span>Plan</button>
+  </nav>
+  <div id="toast"></div>
+
+  <script src="logic.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
