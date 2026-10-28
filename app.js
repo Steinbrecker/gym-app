@@ -3,6 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
+  const APP_VERSION = 6;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -336,7 +337,8 @@
       <details class="other">
         <summary>Anderen Tag wählen</summary>
         ${S.plan.days.filter(d => d.id !== nid).map(d => `<button class="btn ghost" data-act="start" data-day="${d.id}">${esc(d.name)} · Durchgang ${(S.counters[d.id] || 0) + 1}</button>`).join('')}
-      </details>`;
+      </details>
+      <div class="muted small center">Version ${APP_VERSION}</div>`;
   }
 
   function renderActive() {
@@ -617,7 +619,7 @@
         <h2>Zurücksetzen</h2>
         <button class="btn ghost danger" data-act="reset">Alle Daten löschen</button>
       </div>
-      <div class="muted small center">Gym-App v1 · Daten nur lokal gespeichert</div>`;
+      <div class="muted small center">Version ${APP_VERSION} · Daten nur lokal gespeichert</div>`;
   }
 
   // ---------- Render ----------
@@ -821,7 +823,16 @@
   });
 
   // ---------- Start ----------
-  if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    // Neue Version aktiv -> einmal neu laden (Training bleibt gespeichert)
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; save(); location.reload(); } });
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+    }).catch(() => {});
+  }
   if (S.active) requestWake();
   render();
   window.__gym = { get state() { return S; }, render };
