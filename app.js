@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 12;
+  const APP_VERSION = 13;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist

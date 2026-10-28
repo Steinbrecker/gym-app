@@ -235,3 +235,8 @@ body.in-workout main { padding-bottom: calc(80px + var(--safe-b)); }
 body.in-workout.timer-on main { padding-bottom: calc(166px + var(--safe-b)); }
 body.kb #timer { bottom: 8px; }
 #toast { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+
+/* iOS-Home-Bildschirm-App mit durchsichtiger Statusleiste: ist die Seite kürzer als der Bildschirm,
+   sitzen unten fixierte Elemente um die Statusleistenhöhe zu hoch. Seite daher immer mind. so hoch machen. */
+html { min-height: calc(100% + env(safe-area-inset-top, 0px)); }
+body { min-height: calc(100vh + env(safe-area-inset-top, 0px)); }
