@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 10;
+  const APP_VERSION = 11;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -217,6 +217,8 @@
   function placeTimer() {
     const vv = window.visualViewport; const el = $('#timer');
     if (!typing()) baseH = Math.max(window.innerHeight, vv ? vv.height : 0);
+    // iOS lässt die Seite nach dem Schließen der Tastatur manchmal verschoben – zurücksetzen
+    if (!typing() && (window.scrollY || document.documentElement.scrollTop)) window.scrollTo(0, 0);
     const open = typing();
     document.body.classList.toggle('kb', open);
     if (!el) return;
@@ -945,6 +947,7 @@
     if (dx < -90) {
       const ent = S.active.entries[row.dataset.ex]; const list = row.dataset.swipe === 'warm' ? ent.warm : ent.sets;
       const k = +row.dataset.i; const removed = list.splice(k, 1)[0];
+      S.active.openId = row.dataset.ex; // auf dieser Übung bleiben, auch wenn keine Sätze mehr da sind
       save(); render();
       toast('Satz gelöscht', () => { if (S.active && S.active.entries[row.dataset.ex]) { list.splice(k, 0, removed); save(); render(); } });
     } else { row.style.transform = ''; row.classList.remove('swdel'); }
