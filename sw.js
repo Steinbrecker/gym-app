@@ -1,5 +1,5 @@
 // Offline-Cache. Bei jeder neuen Version VERSION hochzählen.
-const VERSION = 'gym-v4';
+const VERSION = 'gym-v5';
 const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

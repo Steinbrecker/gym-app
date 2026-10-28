@@ -352,63 +352,90 @@
       </section>
       ${A.order.map((id, pos) => renderExCard(id, pos)).join('')}
       <button class="btn primary big" data-act="finish">Training beenden</button>
-      <button class="btn ghost danger" data-act="cancel">Training verwerfen</button>`;
+      <button class="btn ghost danger" data-act="cancel">Training verwerfen</button>
+      ${A.reorder ? renderReorder() : ''}`;
   }
+
+  function renderReorder() {
+    const A = S.active;
+    return `<div class="overlay"><div class="sheet">
+      <div class="sheet-title">Reihenfolge ändern</div>
+      <ul class="rlist" id="rlist">
+        ${A.order.map(id => { const e = ex(id); const ent = A.entries[id]; const done = ent.sets.every(s => s.done);
+          return `<li data-id="${id}" class="${done ? 'rdone' : ''}"><span class="tag t${e.type}">${e.type}</span><span class="rname">${esc(ent.sub ? ent.sub.name : e.name)}</span><span class="handle" aria-label="Ziehen">☰</span></li>`; }).join('')}
+      </ul>
+      <button class="btn primary" data-act="reorderdone">Fertig</button>
+    </div></div>`;
+  }
+
+  function noteKey(id) { const ent = S.active.entries[id]; return ent.sub ? ent.sub.name : ex(id).name; }
 
   function renderExCard(id, pos) {
     const e = ex(id); const ent = S.active.entries[id];
     const sub = ent.sub;
     const last = sub ? lastByName(sub.name) : lastAny(id);
+    const prev = last ? last.sets : [];
     const allDone = ent.sets.every(s => s.done);
     const anyDone = ent.sets.some(s => s.done);
     const alts = altsFor(id).filter(a => !sub || a !== sub.name);
+    const note = (S.notes || {})[noteKey(id)];
     return `
       <article class="card ${allDone ? 'complete' : ''}" id="card-${id}">
         <header>
           <span class="tag t${e.type}">${e.type}</span>
           <div class="ctitle"><h2>${esc(sub ? sub.name : e.name)}</h2>
-            ${sub ? `<div class="muted small">statt ${esc(e.name)}</div>` : ''}</div>
-          ${!anyDone ? `<button class="more" data-act="menu" data-ex="${id}" aria-label="Optionen">⋯</button>` : ''}
+            ${sub ? `<div class="muted small">statt ${esc(e.name)}</div>` : ''}
+            ${note && !ent.noteEdit ? `<div class="cnote" data-act="noteedit" data-ex="${id}">${esc(note)}</div>` : ''}</div>
+          <button class="more" data-act="menu" data-ex="${id}" aria-label="Optionen">⋯</button>
         </header>
-        ${!anyDone && ent.menu ? `<div class="cactions">
-          ${pos < S.active.order.length - 1 ? `<button data-act="later" data-ex="${id}">↓ Später</button>` : ''}
-          <button data-act="subopen" data-ex="${id}">⇄ ${sub ? 'Andere Übung' : 'Ersetzen'}</button>
-          ${sub ? `<button data-act="subundo" data-ex="${id}">↺ Original</button>` : ''}
+        ${ent.menu ? `<div class="cactions">
+          <button data-act="noteedit" data-ex="${id}">✎ Notiz</button>
+          <button data-act="reorder" data-ex="${id}">☰ Reihenfolge</button>
+          ${!anyDone ? `<button data-act="subopen" data-ex="${id}">⇄ ${sub ? 'Andere' : 'Ersetzen'}</button>` : ''}
+          ${!anyDone && sub ? `<button data-act="subundo" data-ex="${id}">↺ Original</button>` : ''}
         </div>` : ''}
+        ${ent.noteEdit ? `<div class="noteedit"><textarea data-note="${id}" rows="2" placeholder="z. B. Sitz Stufe 4, enger Griff">${esc(note || '')}</textarea><button class="link" data-act="notesave" data-ex="${id}">Fertig</button></div>` : ''}
         ${ent.subOpen ? `<div class="subpick">
           <div class="muted small">Ausweichen auf:</div>
           ${alts.map(a => `<button class="wchip" data-act="subset" data-ex="${id}" data-name="${esc(a)}">${esc(a)}</button>`).join('')}
           <button class="wchip" data-act="subcustom" data-ex="${id}">+ Eigene Übung</button>
           <button class="link muted" data-act="subclose" data-ex="${id}">Abbrechen</button>
         </div>` : ''}
-        ${last ? `<div class="last">Zuletzt: ${esc(setsText(last.sets))}</div>` : ''}
-        ${!sub && ent.warm.length ? `
-          <button class="warmtoggle" data-act="togglewarm" data-ex="${id}">${ent.showWarm ? '▾' : '▸'} Aufwärmen (${ent.warm.filter(w => w.done).length}/${ent.warm.length})</button>
-          ${ent.showWarm ? `<div class="warm">${ent.warm.map((w, i) => `<button class="wchip ${w.done ? 'on' : ''}" data-act="warm" data-ex="${id}" data-i="${i}">${fmt(w.w)} × ${w.r}</button>`).join('')}</div>` : ''}` : ''}
         ${ent.intra ? `<div class="note warn">Zu schwer – Rest mit ${fmt(ent.intra)} kg? <button class="link" data-act="intra" data-ex="${id}">Übernehmen</button> <button class="link muted" data-act="intrano" data-ex="${id}">Nein</button></div>` : ''}
         <div class="sets">
-          ${ent.sets.map((s, i) => renderSet(id, s, i)).join('')}
+          <div class="shead"><span>Satz</span><span>Vorher</span><span>kg</span><span>Wdh</span><span>RPE</span><span>✓</span></div>
+          ${!sub ? ent.warm.map((w, i) => renderWarm(id, w, i)).join('') : ''}
+          ${ent.sets.map((s, i) => renderSet(id, s, i, prev[i])).join('')}
         </div>
       </article>`;
   }
 
-  function renderSet(id, s, i) {
-    const e = ex(id);
+  function prevCell(p) {
+    if (!p) return '<span class="prev">–</span>';
+    return `<span class="prev">${fmt(p.w)} × ${p.r}${p.rpe ? `<small>@${fmt(p.rpe)}</small>` : ''}</span>`;
+  }
+
+  function renderWarm(id, w, i) {
+    return `
+      <div class="set warmrow ${w.done ? 'done' : ''}">
+        <div class="sn w">W</div>
+        <span class="prev"></span>
+        <input class="cell" inputmode="decimal" data-field="w" data-warm="1" data-ex="${id}" data-i="${i}" value="${fmt(w.w)}">
+        <input class="cell" inputmode="numeric" data-field="r" data-warm="1" data-ex="${id}" data-i="${i}" value="${w.r}">
+        <span></span>
+        <button class="check" data-act="warm" data-ex="${id}" data-i="${i}" aria-label="Aufwärmsatz erledigt">✓</button>
+      </div>`;
+  }
+
+  function renderSet(id, s, i, p) {
     return `
       <div class="set ${s.done ? 'done' : ''}">
         <div class="sn">${i + 1}</div>
-        <div class="stepper">
-          <button data-act="w" data-ex="${id}" data-i="${i}" data-d="-1" aria-label="weniger Gewicht">−</button>
-          <input inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${s.w == null ? '' : fmt(s.w)}" placeholder="kg">
-          <button data-act="w" data-ex="${id}" data-i="${i}" data-d="1" aria-label="mehr Gewicht">+</button>
-        </div>
-        <div class="stepper reps">
-          <button data-act="r" data-ex="${id}" data-i="${i}" data-d="-1" aria-label="weniger Wdh">−</button>
-          <input inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${s.r == null ? '' : s.r}">
-          <button data-act="r" data-ex="${id}" data-i="${i}" data-d="1" aria-label="mehr Wdh">+</button>
-        </div>
-        <select data-field="rpe" data-ex="${id}" data-i="${i}" aria-label="RPE">
-          ${RPES.map(r => `<option value="${r}" ${s.rpe === r ? 'selected' : ''}>@${fmt(r)}</option>`).join('')}
+        ${prevCell(p)}
+        <input class="cell" inputmode="decimal" data-field="w" data-ex="${id}" data-i="${i}" value="${s.w == null ? '' : fmt(s.w)}" placeholder="kg">
+        <input class="cell" inputmode="numeric" data-field="r" data-ex="${id}" data-i="${i}" value="${s.r == null ? '' : s.r}">
+        <select class="cell" data-field="rpe" data-ex="${id}" data-i="${i}" aria-label="RPE">
+          ${RPES.map(r => `<option value="${r}" ${s.rpe === r ? 'selected' : ''}>${fmt(r)}</option>`).join('')}
         </select>
         <button class="check" data-act="done" data-ex="${id}" data-i="${i}" aria-label="Satz erledigt">✓</button>
       </div>`;
@@ -669,6 +696,18 @@
         save(); render(); toast(ex(id).name + ' ans Ende verschoben'); break;
       }
       case 'menu': A.entries[id].menu = !A.entries[id].menu; if (!A.entries[id].menu) A.entries[id].subOpen = false; save(); render(); break;
+      case 'noteedit': A.entries[id].noteEdit = true; A.entries[id].menu = false; save(); render(); { const ta = document.querySelector(`[data-note="${id}"]`); if (ta) ta.focus(); } break;
+      case 'notesave': {
+        const ta = document.querySelector(`[data-note="${id}"]`);
+        if (ta) { S.notes = S.notes || {}; const k = noteKey(id); const v = ta.value.trim(); if (v) S.notes[k] = v; else delete S.notes[k]; }
+        A.entries[id].noteEdit = false; save(); render(); break;
+      }
+      case 'reorder': A.reorder = true; A.entries[id].menu = false; save(); render(); break;
+      case 'reorderdone': {
+        const ids = [...document.querySelectorAll('#rlist li')].map(li => li.dataset.id);
+        if (ids.length === A.order.length) A.order = ids;
+        A.reorder = false; save(); render(); break;
+      }
       case 'subopen': A.entries[id].subOpen = true; save(); render(); break;
       case 'subclose': A.entries[id].subOpen = false; save(); render(); break;
       case 'subset': setSub(id, b.dataset.name); break;
@@ -698,11 +737,45 @@
       case 'reset': if (confirm('Wirklich alle Daten löschen? Vorher ein Backup machen!')) { S = fresh(); save(); render(); } break;
     }
   });
+  // Ziehen zum Sortieren (Reihenfolge ändern)
+  let drag = null;
+  document.addEventListener('pointerdown', ev => {
+    const h = ev.target.closest('.handle'); if (!h) return;
+    const li = h.closest('li'); ev.preventDefault();
+    drag = { li, list: li.parentElement, id: ev.pointerId };
+    li.classList.add('dragging');
+    try { h.setPointerCapture(ev.pointerId); } catch (e) { /* egal */ }
+  });
+  document.addEventListener('pointermove', ev => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    ev.preventDefault();
+    const y = ev.clientY; const li = drag.li;
+    const next = li.nextElementSibling, prev = li.previousElementSibling;
+    if (next) { const r = next.getBoundingClientRect(); if (y > r.top + r.height / 2) { drag.list.insertBefore(next, li); return; } }
+    if (prev) { const r = prev.getBoundingClientRect(); if (y < r.top + r.height / 2) drag.list.insertBefore(li, prev); }
+  }, { passive: false });
+  const endDrag = ev => {
+    if (!drag || ev.pointerId !== drag.id) return;
+    drag.li.classList.remove('dragging');
+    const ids = [...drag.list.children].map(li => li.dataset.id);
+    if (S.active && ids.length === S.active.order.length) { S.active.order = ids; save(); }
+    drag = null;
+  };
+  document.addEventListener('pointerup', endDrag);
+  document.addEventListener('pointercancel', endDrag);
+
   document.addEventListener('change', ev => {
     const t = ev.target;
     if (t.dataset.act === 'statex') { statEx = t.value; render(); return; }
+    if (t.dataset.note && S.active) {
+      S.notes = S.notes || {};
+      const k = noteKey(t.dataset.note); const v = t.value.trim();
+      if (v) S.notes[k] = v; else delete S.notes[k];
+      save(); return;
+    }
     if (t.dataset.field && S.active) {
-      const s = S.active.entries[t.dataset.ex].sets[+t.dataset.i];
+      const ent = S.active.entries[t.dataset.ex];
+      const s = t.dataset.warm ? ent.warm[+t.dataset.i] : ent.sets[+t.dataset.i];
       const v = parseFloat(String(t.value).replace(',', '.'));
       if (t.dataset.field === 'rpe') s.rpe = v;
       else if (t.dataset.field === 'w') s.w = isNaN(v) ? null : v;
