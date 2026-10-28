@@ -5,6 +5,35 @@
   const KEY = 'gymapp.v1';
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
+  // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
+  const ALTS = {
+    bench: ['Bankdrücken Multipresse', 'Kurzhantel-Bankdrücken', 'Brustpresse (Maschine)'],
+    tbar: ['Isolaterales Rudern', 'Kabelrudern sitzend', 'Kurzhantelrudern'],
+    inclinedb: ['Isolaterale Schrägbank-Brustpresse', 'Schrägbankdrücken Multipresse'],
+    pulldown: ['Klimmzug (unterstützt)', 'Isolaterales Rudern von oben'],
+    ohp: ['Kurzhantel-Schulterdrücken', 'Schulterpresse (Maschine)'],
+    bbcurl: ['SZ-Curls', 'Kurzhantel-Curls', 'Kabel-Curls'],
+    ohtri: ['Überkopf-Trizepsstrecken (Kabel)', 'Trizepsdrücken Kabel'],
+    squat: ['Kniebeuge Multipresse', 'Hackenschmidt-Kniebeuge', 'Beinpresse'],
+    deadlift: ['Rumänisches Kreuzheben', 'Kreuzheben Trap Bar'],
+    legpress: ['Hackenschmidt-Kniebeuge', 'Kniebeuge Multipresse'],
+    legcurl_p: ['Beinbeuger stehend (einbeinig)'],
+    calfseat: ['Wadendrücken an der Beinpresse', 'Wadenheben stehend'],
+    inclinepress: ['Schrägbankdrücken Multipresse', 'Schrägbank KH-Drücken'],
+    isorow: ['Kabelrudern sitzend', 'Brustgestütztes T-Bar-Rudern', 'Kurzhantelrudern'],
+    butterfly: ['Fliegende am Kabel', 'Kurzhantel-Fliegende'],
+    highrow: ['Latzug', 'Klimmzug (unterstützt)'],
+    lateral: ['Seitheben am Kabel', 'Seitheben (Maschine)'],
+    inclinecurl: ['Kurzhantel-Curls', 'Kabel-Curls'],
+    pushdown: ['Überkopf-Trizepsstrecken (Kabel)', 'Dip-Maschine'],
+    hack: ['Beinpresse', 'Kniebeuge Multipresse'],
+    legcurl_h: ['Beinbeuger stehend (einbeinig)'],
+    backext: ['Rumänisches Kreuzheben (Kurzhantel)'],
+    legext: ['Beinpresse (enge Fußstellung)'],
+    adductor: ['Adduktion am Kabel'],
+    abductor: ['Abduktion am Kabel'],
+    calfpress: ['Wadenheben stehend', 'Wadenheben sitzend'],
+  };
 
   // ---------- Zustand ----------
   let S = load();
@@ -66,6 +95,28 @@
     }
     return null;
   }
+  function lastByName(name) {
+    for (let i = S.sessions.length - 1; i >= 0; i--) {
+      const e = S.sessions[i].entries.find(x => x.name === name);
+      if (e) return { date: S.sessions[i].date, sets: e.sets };
+    }
+    for (let i = S.hevy.length - 1; i >= 0; i--) {
+      const e = S.hevy[i].entries.find(x => x.name === name);
+      if (e) return { date: S.hevy[i].date, sets: e.sets.filter(s => !s.warmup), hevy: true };
+    }
+    return null;
+  }
+  function setSub(id, name) {
+    const ent = S.active.entries[id]; const e = ex(id);
+    S.subWeights = S.subWeights || {};
+    const last = lastByName(name);
+    const w = S.subWeights[name] != null ? S.subWeights[name] : (last && last.sets.length ? last.sets[0].w : null);
+    ent.orig = ent.orig || ent.sets.map(s => Object.assign({}, s));
+    ent.sub = name ? { name } : null;
+    ent.subOpen = false; ent.intra = false;
+    ent.sets = name ? ent.orig.map(() => ({ w, r: e.lo, rpe: e.rpe, done: false })) : ent.orig.map(s => Object.assign({}, s));
+    save(); render();
+  }
   function setsText(sets) {
     if (!sets || !sets.length) return '';
     const sameW = sets.every(s => s.w === sets[0].w);
@@ -114,7 +165,8 @@
   function startTimer(exId) {
     const e = ex(exId); const day = dayById(S.active.dayId);
     const secs = (e.rest && e.rest[day.kind]) || REST[day.kind][e.type];
-    S.active.timer = { end: Date.now() + secs * 1000, total: secs, name: e.name, beeped: false };
+    const sub = S.active.entries[exId].sub;
+    S.active.timer = { end: Date.now() + secs * 1000, total: secs, name: sub ? sub.name : e.name, beeped: false };
     save(); renderTimer();
   }
   function adjustTimer(d) { if (S.active && S.active.timer) { S.active.timer.end += d * 1000; S.active.timer.beeped = false; save(); renderTimer(); } }
@@ -165,6 +217,7 @@
     const items = A.order.map((id, pos) => {
       const e = ex(id); const ent = A.entries[id];
       const done = ent.sets.filter(s => s.done);
+      if (ent.sub) return { id, skipped: true, name: e.name, oldW: e.weight, newW: e.weight, note: 'Ersetzt durch ' + ent.sub.name + ' – Progression unverändert' };
       if (!done.length) return { id, skipped: true, name: e.name, oldW: e.weight, newW: e.weight };
       if (A.deload) return { id, name: e.name, oldW: e.weight, newW: e.weight, note: 'Deload – zählt nicht für die Progression' };
       const tmp = Object.assign({}, e, { weight: e.weight || done[0].w });
@@ -185,8 +238,13 @@
     });
     S.sessions.push({
       id: 's' + Date.now(), dayId: A.dayId, pass: A.pass, deload: A.deload, date: A.startedAt, end: now,
-      entries: A.order.map((id, pos) => ({ exId: id, name: ex(id).name, pos, sets: A.entries[id].sets.filter(s => s.done).map(s => ({ w: s.w, r: s.r, rpe: s.rpe, done: true })) })).filter(e => e.sets.length),
+      entries: A.order.map((id, pos) => {
+        const ent = A.entries[id];
+        return { exId: ent.sub ? null : id, subFor: ent.sub ? id : undefined, name: ent.sub ? ent.sub.name : ex(id).name, pos, sets: ent.sets.filter(s => s.done).map(s => ({ w: s.w, r: s.r, rpe: s.rpe, done: true })) };
+      }).filter(e => e.sets.length),
     });
+    S.subWeights = S.subWeights || {};
+    A.order.forEach(id => { const ent = A.entries[id]; const d = ent.sub && ent.sets.filter(s => s.done); if (d && d.length) S.subWeights[ent.sub.name] = d[d.length - 1].w; });
     if (A.deload) S.settings.lastDeload = now;
     S.counters[A.dayId] = (S.counters[A.dayId] || 0) + 1;
     S.lastDayId = A.dayId;
@@ -242,20 +300,34 @@
 
   function renderExCard(id, pos) {
     const e = ex(id); const ent = S.active.entries[id];
-    const last = lastAny(id);
+    const sub = ent.sub;
+    const last = sub ? lastByName(sub.name) : lastAny(id);
     const allDone = ent.sets.every(s => s.done);
+    const anyDone = ent.sets.some(s => s.done);
     const rpeTxt = e.type === 'I' || e.failLast ? `RPE ${fmt(e.rpe)}, letzter Satz bis Versagen` : `RPE ${fmt(e.rpe)}`;
-    const posNote = e.type === 'H' && pos >= 1 ? '<div class="hint">An 2. Position: 1 Wdh weniger ist okay.</div>' : '';
+    const posNote = !sub && e.type === 'H' && pos >= 1 ? '<div class="hint">An 2. Position: 1 Wdh weniger ist okay.</div>' : '';
+    const alts = (ALTS[id] || []).filter(a => !sub || a !== sub.name);
     return `
       <article class="card ${allDone ? 'complete' : ''}" id="card-${id}">
         <header>
           <span class="tag t${e.type}">${e.type}</span>
-          <div class="ctitle"><h2>${esc(e.name)}</h2>
-            <div class="muted">${e.sets} × ${e.lo}–${e.hi} · ${rpeTxt}${e.kind === 'kh' ? ' · kg pro Hantel' : ''}</div></div>
+          <div class="ctitle"><h2>${esc(sub ? sub.name : e.name)}</h2>
+            <div class="muted">${sub ? 'Ersatz für ' + esc(e.name) + ' · ' : ''}${e.sets} × ${e.lo}–${e.hi} · ${rpeTxt}${e.kind === 'kh' ? ' · kg pro Hantel' : ''}</div></div>
         </header>
-        ${last ? `<div class="last">Letztes Mal${last.hevy ? ' (Hevy)' : ''}, ${dateDE(last.date)}: ${esc(setsText(last.sets))}</div>` : '<div class="last">Neu: Gewicht wählen, ersten Satz machen, RPE ehrlich eintragen.</div>'}
+        ${!anyDone ? `<div class="cactions">
+          ${pos < S.active.order.length - 1 ? `<button data-act="later" data-ex="${id}">↓ Später</button>` : ''}
+          <button data-act="subopen" data-ex="${id}">⇄ ${sub ? 'Andere Übung' : 'Ersetzen'}</button>
+          ${sub ? `<button data-act="subundo" data-ex="${id}">↺ Original</button>` : ''}
+        </div>` : ''}
+        ${ent.subOpen ? `<div class="subpick">
+          <div class="muted small">Ausweichen auf:</div>
+          ${alts.map(a => `<button class="wchip" data-act="subset" data-ex="${id}" data-name="${esc(a)}">${esc(a)}</button>`).join('')}
+          <button class="wchip" data-act="subcustom" data-ex="${id}">+ Eigene Übung</button>
+          <button class="link muted" data-act="subclose" data-ex="${id}">Abbrechen</button>
+        </div>` : ''}
+        ${last ? `<div class="last">Letztes Mal${last.hevy ? ' (Hevy)' : ''}, ${dateDE(last.date)}: ${esc(setsText(last.sets))}</div>` : `<div class="last">${sub ? 'Ersatzübung: Gewicht wählen und RPE ehrlich eintragen. Die Progression von ' + esc(e.name) + ' bleibt unverändert.' : 'Neu: Gewicht wählen, ersten Satz machen, RPE ehrlich eintragen.'}</div>`}
         ${posNote}
-        ${ent.warm.length ? `
+        ${!sub && ent.warm.length ? `
           <button class="warmtoggle" data-act="togglewarm" data-ex="${id}">${ent.showWarm ? '▾' : '▸'} Aufwärmen (${ent.warm.filter(w => w.done).length}/${ent.warm.length})</button>
           ${ent.showWarm ? `<div class="warm">${ent.warm.map((w, i) => `<button class="wchip ${w.done ? 'on' : ''}" data-act="warm" data-ex="${id}" data-i="${i}">${fmt(w.w)} × ${w.r}</button>`).join('')}</div>` : ''}` : ''}
         ${ent.intra ? `<div class="note warn">Erster Satz war zu schwer. Restliche Sätze mit ${fmt(ent.intra)} kg? <button class="link" data-act="intra" data-ex="${id}">Übernehmen</button> <button class="link muted" data-act="intrano" data-ex="${id}">Nein</button></div>` : ''}
@@ -295,7 +367,7 @@
       <div class="muted">Vorschläge nach den Regeln. Du kannst jedes Gewicht noch ändern.</div></section>
       ${it.map((x, i) => `
         <div class="sumrow ${cls(x.result)}">
-          <div><div class="sname">${esc(x.name)}</div><div class="muted small">${x.skipped ? 'Nicht gemacht – unverändert' : esc(x.note || '')}</div></div>
+          <div><div class="sname">${esc(x.name)}</div><div class="muted small">${x.skipped ? esc(x.note || 'Nicht gemacht – unverändert') : esc(x.note || '')}</div></div>
           ${x.skipped ? `<div class="sw">${fmt(x.newW)} kg</div>` : `<div class="sw"><span class="old">${fmt(x.oldW)} →</span> <input inputmode="decimal" data-sum="${i}" value="${fmt(x.newW)}"> kg</div>`}
         </div>`).join('')}
       <button class="btn primary big" data-act="savesum">Speichern</button>
@@ -474,7 +546,7 @@
       case 'start': startWorkout(b.dataset.day, !!b.dataset.deload); window.scrollTo(0, 0); break;
       case 'w': case 'r': {
         const s = A.entries[id].sets[i]; const e = ex(id); const d = +b.dataset.d;
-        if (act === 'w') s.w = s.w == null ? (e.weight || 0) : L.addSteps(e, s.w, d);
+        if (act === 'w') s.w = s.w == null ? ((!A.entries[id].sub && e.weight) || 0) : L.addSteps(e, s.w, d);
         else s.r = Math.max(0, (s.r || 0) + d);
         save(); render(); break;
       }
@@ -484,11 +556,11 @@
         if (s.w == null || s.w === '' || isNaN(s.w)) { toast('Bitte Gewicht eintragen'); break; }
         s.done = true;
         const e = ex(id);
-        if (!e.weight) { e.weight = s.w; ent.sets.forEach(x => { if (!x.done && x.w == null) x.w = s.w; }); }
+        if (!e.weight && !ent.sub) e.weight = s.w;
         // folgende Sätze mit gleichem Gewicht vorbelegen
         ent.sets.forEach((x, j) => { if (j > i && !x.done) x.w = s.w; });
         const firstIdx = ent.sets.findIndex(x => x.done);
-        if (firstIdx === i && !A.deload && ent.intra === null) {
+        if (firstIdx === i && !A.deload && !ent.sub && (ent.intra === null || ent.intra === undefined)) {
           const sug = L.intraSuggest(e, s, A.order.indexOf(id));
           if (sug != null && sug < s.w && ent.sets.some(x => !x.done)) ent.intra = sug;
         }
@@ -496,6 +568,20 @@
         if (!isLastOverall) startTimer(id); else stopTimer();
         save(); render(); break;
       }
+      case 'later': {
+        const k = A.order.indexOf(id);
+        A.order.splice(k, 1); A.order.push(id);
+        save(); render(); toast(ex(id).name + ' ans Ende verschoben'); break;
+      }
+      case 'subopen': A.entries[id].subOpen = true; save(); render(); break;
+      case 'subclose': A.entries[id].subOpen = false; save(); render(); break;
+      case 'subset': setSub(id, b.dataset.name); break;
+      case 'subcustom': {
+        const n = (prompt('Name der Ersatzübung:') || '').trim();
+        if (n) setSub(id, n);
+        break;
+      }
+      case 'subundo': setSub(id, null); break;
       case 'warm': { const w = A.entries[id].warm[i]; w.done = !w.done; save(); render(); break; }
       case 'togglewarm': { A.entries[id].showWarm = !A.entries[id].showWarm; save(); render(); break; }
       case 'intra': { const ent = A.entries[id]; ent.sets.forEach(x => { if (!x.done) x.w = ent.intra; }); ent.intra = false; save(); render(); break; }
