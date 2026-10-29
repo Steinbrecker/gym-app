@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 18;
+  const APP_VERSION = 19;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -44,7 +44,7 @@
   let statRange = 0;
 
   function fresh() {
-    return { v: 1, mig: 1, notes: { 'Isolaterales Rudern von oben': 'Beide Seiten gleichzeitig, kg pro Seite' }, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString() } };
+    return { v: 1, mig: 3, notes: { 'Isolaterales Rudern von oben': 'Beide Seiten gleichzeitig, kg pro Seite' }, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString(), startWeights: (() => { const o = {}; Object.values(L.defaultPlan().exercises).forEach(e => (o[e.id] = e.weight)); return o; })() } };
   }
   function load() {
     try {
@@ -94,6 +94,13 @@
         }
       } catch (e) { /* ohne Seed weiter */ }
       st.mig = 2;
+    }
+    if (st.mig < 3) {
+      // Arbeitsgewichte zum Planstart festhalten (Startwerte des Plans)
+      const def = L.defaultPlan().exercises; st.settings = st.settings || {};
+      st.settings.startWeights = {};
+      Object.keys(st.plan.exercises).forEach(id => { st.settings.startWeights[id] = def[id] ? def[id].weight : st.plan.exercises[id].weight; });
+      st.mig = 3;
     }
     return st;
   }
@@ -806,11 +813,84 @@
   // ---------- Render: Einstellungen ----------
   let showLast = false, showPlan = false;
   function restOf(e, kind) { const t = (e.rest && e.rest[kind]) || REST[kind][e.type]; return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); }
+  let planTab = 'progress';
+  const BLOCK_WEEKS = 12, DELOAD_EVERY = 7;
+  function planStartISO() { return S.settings.planStart || (S.sessions[0] && S.sessions[0].date) || null; }
+  function planSessions() { const st = planStartISO(); return st ? S.sessions.concat(S.hevy.filter(x => x.date >= st)).sort((a, b) => a.date.localeCompare(b.date)) : S.sessions.slice(); }
+  // Bestes e1RM einer Übung: Ausgangswert (letzte Einheit vor/bei Planstart, sonst erste danach) und aktueller Wert
+  function e1Progress(name) {
+    const st = planStartISO();
+    const all = [];
+    const scan = (list, own) => list.forEach(x => { if (own && x.deload) return; const en = x.entries.find(e => e.name === name); if (en) { const v = L.bestE1(en.sets).e1; if (v) all.push({ date: x.date, v }); } });
+    scan(S.hevy, false); scan(S.sessions, true);
+    all.sort((a, b) => a.date.localeCompare(b.date));
+    if (!all.length) return null;
+    const before = st ? all.filter(x => x.date < st) : [];
+    const after = st ? all.filter(x => x.date >= st) : all;
+    const base = before.length ? before[before.length - 1] : after[0];
+    const cur = all[all.length - 1];
+    if (!base || !cur || (!before.length && after.length < 2)) return { base: base && base.v, cur: cur.v, pct: null };
+    return { base: base.v, cur: cur.v, pct: (cur.v / base.v - 1) * 100 };
+  }
+  function renderPlanProgress() {
+    const st = planStartISO();
+    if (!st) return '<div class="empty">Der Fortschritt startet mit deinem ersten Training.</div>';
+    const per = S.plan.days.length;
+    const startW = weekStart(new Date(st)).getTime();
+    const wNow = Math.floor((weekStart(new Date()).getTime() - startW) / (7 * 864e5)); // 0-basiert
+    const sess = planSessions();
+    const perWeek = Array.from({ length: BLOCK_WEEKS }, () => 0);
+    sess.forEach(x => { const w = Math.floor((weekStart(new Date(x.date)).getTime() - startW) / (7 * 864e5)); if (w >= 0 && w < BLOCK_WEEKS) perWeek[w]++; });
+    const done = sess.length, total = BLOCK_WEEKS * per;
+    // Soll: abgeschlossene Wochen × Trainings pro Woche (laufende Woche zählt erst am Ende)
+    const soll = Math.min(total, Math.min(wNow, BLOCK_WEEKS) * per);
+    const thisW = perWeek[Math.min(wNow, BLOCK_WEEKS - 1)] || 0;
+    const sinceDel = S.settings.lastDeload ? Math.floor((weekStart(new Date()).getTime() - weekStart(new Date(S.settings.lastDeload)).getTime()) / (7 * 864e5)) : wNow;
+    const delWeek = Math.min(BLOCK_WEEKS - 1, wNow + Math.max(0, DELOAD_EVERY - sinceDel));
+    // Übungen
+    const rows = []; const pcts = [];
+    S.plan.days.forEach(d => d.ex.forEach(id => {
+      const e = ex(id); if (rows.some(r => r.name === e.name && r.day === d.id)) return;
+      const sw = (S.settings.startWeights || {})[id];
+      const pr = e1Progress(e.name);
+      const ups = S.sessions.reduce((n, x) => n + (x.results || []).filter(r => r.id === id && r.newW > r.oldW).length, 0);
+      if (pr && pr.pct != null) pcts.push(pr.pct);
+      rows.push({ id, day: d.id, dayName: d.name, name: e.name, type: e.type, sw, cw: e.weight, pr, ups, stalled: e.stalled });
+    }));
+    const avg = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
+    const sgn = p => (p > 0 ? '+' : '') + fmt(Math.round(p * 10) / 10) + ' %';
+    return `
+      <div class="card pp">
+        <div class="kpis">
+          <div><div class="k">${Math.min(wNow + 1, BLOCK_WEEKS)}<small>/${BLOCK_WEEKS}</small></div><div class="muted small">Woche</div></div>
+          <div><div class="k">${done}<small>/${total}</small></div><div class="muted small">Trainings</div></div>
+          <div><div class="k ${avg != null ? (avg >= 0 ? 'good' : 'bad') : ''}">${avg != null ? sgn(avg) : '–'}</div><div class="muted small">Kraft seit Start</div></div>
+        </div>
+        <div class="pbar"><div style="width:${Math.min(100, (done / total) * 100)}%"></div></div>
+        <div class="muted small">${done >= soll ? '<b class="good">Voll im Plan</b>' : (soll - done) + (soll - done === 1 ? ' Training' : ' Trainings') + ' hinter dem Soll'} · diese Woche ${thisW} von ${per}</div>
+        <div class="wgrid">
+          ${perWeek.map((n, w) => `<div class="wcol ${w === wNow ? 'now' : ''} ${w > wNow ? 'future' : ''}">
+            ${Array.from({ length: per }, (_, i) => `<span class="${i < n ? 'on' : ''}"></span>`).join('')}
+            <em>${w === delWeek && w >= wNow ? 'D' : w + 1}</em></div>`).join('')}
+        </div>
+        <div class="muted small">Jede Spalte eine Woche, jedes Feld ein Training. D = geplante Deload-Woche.</div>
+      </div>
+      ${S.plan.days.map(d => `<div class="card pp-day"><h2>${esc(d.name)}</h2>
+        ${rows.filter(r => r.day === d.id).map(r => `<div class="pp-row">
+          <span class="tag t${r.type}">${r.type}</span>
+          <div class="pp-main"><div class="pd-name">${esc(r.name)}${r.stalled ? ' <span class="stall">stagniert</span>' : ''}</div>
+            <div class="muted small">${r.sw ? fmt(r.sw) : '–'} → <b class="fg">${r.cw ? fmt(r.cw) + ' kg' : 'noch offen'}</b>${r.ups ? ' · ' + r.ups + '× gesteigert' : ''}</div></div>
+          <div class="pp-pct ${r.pr && r.pr.pct != null ? (r.pr.pct >= 1 ? 'good' : r.pr.pct <= -1 ? 'bad' : 'muted') : 'muted'}">${r.pr && r.pr.pct != null ? sgn(r.pr.pct) : '–'}<small>e1RM</small></div>
+        </div>`).join('')}</div>`).join('')}
+      <div class="muted small" style="margin:4px 2px 0">Gewicht: Arbeitsgewicht beim Planstart → heute. Prozent: Veränderung des geschätzten 1RM seit Planstart.</div>`;
+  }
   function renderPlanSheet() {
     const nid = nextDayId();
     return `<div class="overlay" data-act="hideplan"><div class="sheet" data-stop="1">
       <div class="sheet-title">${esc(S.plan.name || 'PHUL – Power Hypertrophy Upper Lower')}</div>
-      <div class="muted small center" style="margin:-4px 0 12px">Reihenfolge so, wie sie beim nächsten Mal kommt</div>
+      <div class="seg">${[['progress', 'Fortschritt'], ['exercises', 'Übungen']].map(([k, l]) => `<button data-act="plantab" data-tab="${k}" class="${planTab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      ${planTab === 'progress' ? renderPlanProgress() : `
+      <div class="muted small center" style="margin:0 0 12px">Reihenfolge so, wie sie beim nächsten Mal kommt</div>
       ${S.plan.days.map(d => {
         const order = L.orderFor(d, S.plan, S.counters[d.id] || 0);
         return `<div class="card planday ${d.id === nid ? 'next' : ''}">
@@ -825,9 +905,11 @@
             </div>`; }).join('')}
         </div>`; }).join('')}
       <div class="muted small" style="margin:4px 2px 0">H = Hauptübung (rotiert an erste Stelle), A = Assistenz, I = Isolation</div>
+      `}
       <button class="btn primary" data-act="hideplan">Schließen</button>
     </div></div>`;
   }
+
   // Rückblick des letzten Trainings; ältere Trainings ohne gespeicherten Rückblick werden nachberechnet
   function lastReview() {
     const sess = S.sessions[S.sessions.length - 1];
@@ -859,7 +941,7 @@
     return { date: sess.date, day: (dayById(sess.dayId) || {}).name, deload: sess.deload, mins, sets, vol: Math.round(vol), rows, prs, verdict, tone };
   }
   function renderSettings() {
-    const BLOCK = 12, DELOAD_EVERY = 7;
+    const BLOCK = BLOCK_WEEKS;
     const start = S.settings.planStart || (S.sessions[0] && S.sessions[0].date) || null;
     // Trainings seit Planstart: App-Trainings (ohne Deload) + importierte Trainings ab Planstart
     const own = start ? S.sessions.concat(S.hevy.filter(x => x.date >= start)) : S.sessions;
@@ -1032,6 +1114,7 @@
       case 'addpick': addExtra(b.dataset.name); break;
       case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
       case 'undo': { const f = undoFn; undoFn = null; $('#toast').classList.remove('show'); if (f) f(); break; }
+      case 'plantab': planTab = b.dataset.tab; render(); break;
       case 'showplan': showPlan = true; render(); break;
       case 'hideplan': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; showPlan = false; render(); break;
       case 'showlast': showLast = true; render(); break;
