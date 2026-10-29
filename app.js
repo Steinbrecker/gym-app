@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 17;
+  const APP_VERSION = 18;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -804,7 +804,30 @@
   }
 
   // ---------- Render: Einstellungen ----------
-  let showLast = false;
+  let showLast = false, showPlan = false;
+  function restOf(e, kind) { const t = (e.rest && e.rest[kind]) || REST[kind][e.type]; return Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0'); }
+  function renderPlanSheet() {
+    const nid = nextDayId();
+    return `<div class="overlay" data-act="hideplan"><div class="sheet" data-stop="1">
+      <div class="sheet-title">${esc(S.plan.name || 'PHUL – Power Hypertrophy Upper Lower')}</div>
+      <div class="muted small center" style="margin:-4px 0 12px">Reihenfolge so, wie sie beim nächsten Mal kommt</div>
+      ${S.plan.days.map(d => {
+        const order = L.orderFor(d, S.plan, S.counters[d.id] || 0);
+        return `<div class="card planday ${d.id === nid ? 'next' : ''}">
+          <div class="pd-head"><h2>${esc(d.name)}</h2><span class="muted small">${d.id === nid ? '<b class="good">Als Nächstes</b>' : (d.kind === 'power' ? 'Kraft' : 'Hypertrophie')}</span></div>
+          ${order.map(id => { const e = ex(id); const note = (S.notes || {})[e.name];
+            return `<div class="pd-row">
+              <span class="tag t${e.type}">${e.type}</span>
+              <div class="pd-main"><div class="pd-name">${esc(e.name)}</div>
+                <div class="muted small">${e.sets} × ${e.lo}–${e.hi} · RPE ${fmt(e.rpe)}${failsLast(e) ? ', letzter Satz 10' : ''} · Pause ${restOf(e, d.kind)}</div>
+                ${note ? `<div class="cnote">${esc(note)}</div>` : ''}</div>
+              <div class="pd-w">${e.weight ? fmt(e.weight) + ' kg' : 'testen'}${e.kind === 'kh' ? '<small>pro Hantel</small>' : (['isorow', 'highrow', 'inclinepress'].includes(id) ? '<small>pro Seite</small>' : '')}</div>
+            </div>`; }).join('')}
+        </div>`; }).join('')}
+      <div class="muted small" style="margin:4px 2px 0">H = Hauptübung (rotiert an erste Stelle), A = Assistenz, I = Isolation</div>
+      <button class="btn primary" data-act="hideplan">Schließen</button>
+    </div></div>`;
+  }
   // Rückblick des letzten Trainings; ältere Trainings ohne gespeicherten Rückblick werden nachberechnet
   function lastReview() {
     const sess = S.sessions[S.sessions.length - 1];
@@ -851,8 +874,8 @@
     return `
       <section class="hero small"><h1>Einstellungen</h1></section>
       <div class="card">
-        <div class="eyebrow">Aktueller Plan</div>
-        <h2 class="planname">${esc(planName)}</h2>
+        <button class="planhead" data-act="showplan"><span><span class="eyebrow">Aktueller Plan</span>
+        <span class="planname">${esc(planName)}</span></span><span class="pv">Ansehen ›</span></button>
         <div class="muted small">4 Tage · Upper/Lower · Kraft + Hypertrophie${start ? ' · seit ' + dateDE(start) : ''}</div>
         ${start ? `
           <div class="pbar-label"><span>Diese Woche</span><span class="muted">${Math.min(thisWeek, perWeek)} von ${perWeek} Trainings</span></div>
@@ -866,6 +889,7 @@
           : '<div class="muted small pmt">Der Fortschritt startet mit deinem ersten Training.</div>'}
       </div>
       ${lastReview() ? `<button class="card lastbtn" data-act="showlast"><div><div class="eyebrow">Letztes Training</div><div class="lb-title">${esc(lastReview().day || 'Training')} · ${dateDE(lastReview().date)}</div></div><span class="muted">›</span></button>` : ''}
+      ${showPlan ? renderPlanSheet() : ''}
       ${showLast && lastReview() ? `<div class="overlay" data-act="hidelast"><div class="sheet" data-stop="1"><div class="sheet-title">${esc(lastReview().day || 'Training')} · ${dateDE(lastReview().date)}</div>${renderReviewBlock(lastReview())}<button class="btn primary" data-act="hidelast">Schließen</button></div></div>` : ''}
       <details class="card howto">
         <summary><h2>So funktioniert die App</h2><span class="muted">▾</span></summary>
@@ -1008,6 +1032,8 @@
       case 'addpick': addExtra(b.dataset.name); break;
       case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
       case 'undo': { const f = undoFn; undoFn = null; $('#toast').classList.remove('show'); if (f) f(); break; }
+      case 'showplan': showPlan = true; render(); break;
+      case 'hideplan': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; showPlan = false; render(); break;
       case 'showlast': showLast = true; render(); break;
       case 'hidelast': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; showLast = false; render(); break;
       case 'reviewok': S.settings.reviewSeen = b.dataset.key; save(); render(); break;
