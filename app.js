@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 16;
+  const APP_VERSION = 17;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -75,6 +75,25 @@
         if (!st.notes[nm]) st.notes[nm] = 'Beide Seiten gleichzeitig, kg pro Seite';
       }
       st.mig = 1;
+    }
+    if (st.mig < 2) {
+      // Plan startet am Montag 26.10.2026; die beiden Hevy-Trainings dieser Woche gehören dazu
+      st.settings = st.settings || {};
+      st.settings.planStart = new Date(2026, 9, 26).toISOString();
+      st.hevy = st.hevy || [];
+      try {
+        if (window.SEED_WEEK_CSV) {
+          const have = new Set(st.hevy.map(x => x.id));
+          const times = st.hevy.concat(st.sessions || []).map(x => new Date(x.date).getTime());
+          L.hevyToSessions(window.SEED_WEEK_CSV, st.plan).forEach(x => {
+            const t = new Date(x.date).getTime();
+            if (have.has(x.id) || times.some(y => Math.abs(y - t) < 90 * 60000)) return;
+            st.hevy.push(x);
+          });
+          st.hevy.sort((a, b) => a.date.localeCompare(b.date));
+        }
+      } catch (e) { /* ohne Seed weiter */ }
+      st.mig = 2;
     }
     return st;
   }
@@ -328,7 +347,7 @@
       <div class="card review">
         <div class="verdict ${R.tone}">${esc(R.verdict)}</div>
         <div class="kpis">
-          <div><div class="k">${R.mins} min</div><div class="muted small">Dauer</div></div>
+          <div><div class="k">${R.mins ? R.mins + ' min' : '–'}</div><div class="muted small">Dauer</div></div>
           <div><div class="k">${R.sets}</div><div class="muted small">Sätze</div></div>
           <div><div class="k">${R.vol >= 1000 ? fmt(Math.round(R.vol / 100) / 10) + ' t' : fmt(R.vol) + ' kg'}</div><div class="muted small">bewegt</div></div>
         </div>
@@ -786,14 +805,44 @@
 
   // ---------- Render: Einstellungen ----------
   let showLast = false;
+  // Rückblick des letzten Trainings; ältere Trainings ohne gespeicherten Rückblick werden nachberechnet
   function lastReview() {
-    for (let i = S.sessions.length - 1; i >= 0; i--) if (S.sessions[i].review) return S.sessions[i].review;
-    return null;
+    const sess = S.sessions[S.sessions.length - 1];
+    if (!sess) return null;
+    return sess.review || reviewFromSession(sess);
+  }
+  function reviewFromSession(sess) {
+    const mins = sess.end ? Math.max(1, Math.round((new Date(sess.end) - new Date(sess.date)) / 60000)) : null;
+    let sets = 0, vol = 0; const rows = []; const prs = [];
+    sess.entries.forEach(en => {
+      const done = en.sets.filter(x => !x.warmup); if (!done.length) return;
+      sets += done.length; done.forEach(x => { if (x.w && x.r) vol += x.w * x.r; });
+      const now = L.bestE1(done); const prev = bestBefore(en.name, sess.date);
+      let all = 0;
+      const scan = list => list.forEach(o => { if (o.deload || o.date >= sess.date) return; const e2 = o.entries.find(x => x.name === en.name); if (e2) all = Math.max(all, L.bestE1(e2.sets).e1); });
+      scan(S.hevy); scan(S.sessions);
+      const pct = prev && prev.e1 ? (now.e1 / prev.e1 - 1) * 100 : null;
+      const trend = pct == null ? 'new' : pct >= 1 ? 'up' : pct <= -1 ? 'down' : 'same';
+      const isPr = !sess.deload && all > 0 && now.e1 > all * 1.005;
+      if (isPr) prs.push({ name: en.name, w: now.top.w, r: now.top.r });
+      rows.push({ name: en.name, sets: done.length, top: now.top ? fmt(now.top.w) + ' × ' + now.top.r : '', pct, trend, pr: isPr });
+    });
+    const up = rows.filter(r => r.trend === 'up').length, down = rows.filter(r => r.trend === 'down').length;
+    let verdict, tone;
+    if (sess.deload) { verdict = 'Deload erledigt – gut erholt in die nächste Woche.'; tone = 'same'; }
+    else if (prs.length || up >= down + 2) { verdict = 'Starkes Training!' + (prs.length ? ' ' + prs.length + (prs.length === 1 ? ' neuer Bestwert.' : ' neue Bestwerte.') : ''); tone = 'up'; }
+    else if (up >= down) { verdict = 'Solides Training – auf Kurs.'; tone = 'same'; }
+    else { verdict = 'Etwas schwächer als zuletzt. Passiert – Schlaf, Essen und Tagesform spielen mit.'; tone = 'down'; }
+    return { date: sess.date, day: (dayById(sess.dayId) || {}).name, deload: sess.deload, mins, sets, vol: Math.round(vol), rows, prs, verdict, tone };
   }
   function renderSettings() {
     const BLOCK = 12, DELOAD_EVERY = 7;
-    const own = S.sessions;
-    const start = S.settings.planStart || (own[0] && own[0].date) || null;
+    const start = S.settings.planStart || (S.sessions[0] && S.sessions[0].date) || null;
+    // Trainings seit Planstart: App-Trainings (ohne Deload) + importierte Trainings ab Planstart
+    const own = start ? S.sessions.concat(S.hevy.filter(x => x.date >= start)) : S.sessions;
+    const wk0 = weekStart(new Date()).getTime();
+    const thisWeek = own.filter(x => new Date(x.date).getTime() >= wk0).length;
+    const perWeek = S.plan.days.length;
     const week = start ? Math.floor((Date.now() - new Date(start)) / (7 * 864e5)) + 1 : 0;
     const since = S.settings.lastDeload || start;
     const wSince = since ? Math.floor((Date.now() - new Date(since)) / (7 * 864e5)) : 0;
@@ -806,7 +855,9 @@
         <h2 class="planname">${esc(planName)}</h2>
         <div class="muted small">4 Tage · Upper/Lower · Kraft + Hypertrophie${start ? ' · seit ' + dateDE(start) : ''}</div>
         ${start ? `
-          <div class="pbar-label"><span>Woche ${Math.min(week, BLOCK)} von ${BLOCK}</span><span class="muted">${own.length} ${own.length === 1 ? 'Training' : 'Trainings'}</span></div>
+          <div class="pbar-label"><span>Diese Woche</span><span class="muted">${Math.min(thisWeek, perWeek)} von ${perWeek} Trainings</span></div>
+          <div class="pbar wk">${Array.from({ length: perWeek }, (_, i) => `<div class="${i < thisWeek ? 'on' : ''}"></div>`).join('')}</div>
+          <div class="pbar-label"><span>Woche ${Math.min(week, BLOCK)} von ${BLOCK}</span><span class="muted">${own.length} ${own.length === 1 ? 'Training' : 'Trainings'} gesamt</span></div>
           <div class="pbar"><div style="width:${Math.min(100, (week / BLOCK) * 100)}%"></div></div>
           <div class="muted small">${week > BLOCK ? 'Block geschafft – Zeit für eine Bilanz. Schreib mir, dann planen wir den nächsten Block.' : `Nach ${BLOCK} Wochen ziehen wir Bilanz und passen Übungen oder Plan an.`}</div>
           <div class="pbar-label"><span>Deload</span><span class="muted">${toDeload ? 'in ' + toDeload + (toDeload === 1 ? ' Woche' : ' Wochen') : 'jetzt empfohlen'}</span></div>

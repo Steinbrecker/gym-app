@@ -250,3 +250,6 @@ body { min-height: calc(100vh + env(safe-area-inset-top, 0px)); }
 .lb-title { font-weight: 700; margin-top: 2px; }
 .sheet .review { background: var(--panel2); }
 .sheet .review .kpis > div { background: var(--panel); }
+.pbar.wk { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: none; }
+.pbar.wk div { background: var(--panel2); border-radius: 8px; }
+.pbar.wk div.on { background: var(--good); }

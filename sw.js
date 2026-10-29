@@ -1,6 +1,6 @@
 // Offline-Cache. Bei jeder neuen Version VERSION hochzählen (gleich wie APP_VERSION in app.js).
-const VERSION = 'gym-v16';
-const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
+const VERSION = 'gym-v17';
+const FILES = ['./', 'index.html', 'style.css', 'logic.js', 'seed-week.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
   // cache: 'reload' umgeht den HTTP-Zwischenspeicher von GitHub, damit keine alten Dateien im neuen Cache landen
