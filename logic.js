@@ -26,10 +26,10 @@
       EX('legcurl_p', 'Beinbeuger liegend', 'I', 3, 6, 10, 9, 'm', 'Beine hinten', 45, ['Liegendes Beinbeugen (Maschine)']),
       EX('calfseat', 'Wadenheben sitzend', 'I', 4, 6, 10, 9, 'm', 'Waden', 70, ['Wadenheben sitzend']),
       // Tag 3 – Upper Hypertrophie
-      EX('inclinepress', 'Isolaterale Schrägbank-Brustpresse', 'H', 3, 8, 12, 9, 'mp', 'Brust', null, [], { failLast: true }),
-      EX('isorow', 'Isolaterales Rudern', 'H', 3, 8, 12, 9, 'mp', 'Rücken', 50, ['Iso-Laterales Rudern (Maschine)'], { failLast: true }),
+      EX('inclinepress', 'Isolaterale Schrägbank-Brustpresse', 'H', 3, 8, 12, 9, 'mp', 'Brust', null, [], { failLast: true, step: 1.25 }),
+      EX('isorow', 'Isolaterales Rudern', 'H', 3, 8, 12, 9, 'mp', 'Rücken', 50, ['Iso-Laterales Rudern (Maschine)'], { failLast: true, step: 1.25 }),
       EX('butterfly', 'Butterfly', 'A', 3, 8, 12, 9, 'm', 'Brust', 60, ['Fliegende (Maschine)']),
-      EX('highrow', 'Isolaterales Rudern von oben', 'A', 3, 8, 12, 9, 'mp', 'Rücken', 65, ['Iso-Laterales Rudern von oben (Maschine)']),
+      EX('highrow', 'Isolaterales Rudern von oben', 'A', 3, 8, 12, 9, 'mp', 'Rücken', 32.5, ['Iso-Laterales Rudern von oben (Maschine)'], { step: 1.25 }),
       EX('lateral', 'Seitheben', 'I', 3, 10, 15, 9, 'kh', 'Schultern', 8, ['Seitheben (Kurzhantel)']),
       EX('inclinecurl', 'Schrägbank-Curls', 'I', 3, 8, 12, 9, 'kh', 'Bizeps', 14, ['Incline Curl sitzend (Kurzhantel)']),
       EX('pushdown', 'Trizepsdrücken Kabel', 'I', 3, 8, 12, 9, 'm', 'Trizeps', 60, ['Trizeps-Pushdown mit Seil (Kabelzug)', 'Trizeps-Pushdown (Kabelzug)']),

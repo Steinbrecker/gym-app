@@ -240,3 +240,13 @@ body.kb #timer { bottom: 8px; }
    sitzen unten fixierte Elemente um die Statusleistenhöhe zu hoch. Seite daher immer mind. so hoch machen. */
 html { min-height: calc(100% + env(safe-area-inset-top, 0px)); }
 body { min-height: calc(100vh + env(safe-area-inset-top, 0px)); }
+
+/* Version 16: Trainings-Rückblick */
+.verdict { font-size: 18px; font-weight: 800; margin-bottom: 4px; }
+.verdict.up { color: var(--good); } .verdict.down { color: var(--warn); }
+.sechead { margin: 18px 2px 4px; font-size: 18px; }
+.rrow small { font-size: 12px; }
+.card.lastbtn { display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left; font: inherit; color: var(--text); cursor: pointer; }
+.lb-title { font-weight: 700; margin-top: 2px; }
+.sheet .review { background: var(--panel2); }
+.sheet .review .kpis > div { background: var(--panel); }

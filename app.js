@@ -3,9 +3,9 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 15;
+  const APP_VERSION = 16;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
-  const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 60 } };
+  const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
   const ALTS = {
     bench: ['Bankdrücken Multipresse', 'Kurzhantel-Bankdrücken', 'Brustpresse (Maschine)'],
@@ -44,14 +44,39 @@
   let statRange = 0;
 
   function fresh() {
-    return { v: 1, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString() } };
+    return { v: 1, mig: 1, notes: { 'Isolaterales Rudern von oben': 'Beide Seiten gleichzeitig, kg pro Seite' }, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString() } };
   }
   function load() {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) { const s = JSON.parse(raw); if (s && s.plan) return s; }
+      if (raw) { const s = JSON.parse(raw); if (s && s.plan) return migrate(s); }
     } catch (e) { /* leer */ }
     return fresh();
+  }
+  // Datenstand anpassen, wenn sich Regeln ändern (läuft einmal pro Schritt)
+  function migrate(st) {
+    st.mig = st.mig || 0;
+    if (st.mig < 1) {
+      // Isolaterale Maschinen einheitlich: Gewicht pro Seite, Schritt 1,25 kg
+      const P = st.plan.exercises;
+      ['isorow', 'highrow', 'inclinepress'].forEach(id => { if (P[id]) P[id].step = 1.25; });
+      const hr = P.highrow;
+      if (hr) {
+        const half = w => (w == null ? w : Math.round((w / 2) / 1.25) * 1.25);
+        const nm = hr.name;
+        hr.weight = half(hr.weight);
+        const fix = list => (list || []).forEach(sess => (sess.entries || []).forEach(en => {
+          if (en.name === nm || en.exId === 'highrow') en.sets.forEach(x => { x.w = half(x.w); });
+        }));
+        fix(st.hevy); fix(st.sessions);
+        (st.sessions || []).forEach(sess => (sess.results || []).forEach(r => { if (r.id === 'highrow') { r.oldW = half(r.oldW); r.newW = half(r.newW); } }));
+        if (st.active && st.active.entries && st.active.entries.highrow) st.active.entries.highrow.sets.forEach(x => { if (!x.done) x.w = half(x.w); });
+        st.notes = st.notes || {};
+        if (!st.notes[nm]) st.notes[nm] = 'Beide Seiten gleichzeitig, kg pro Seite';
+      }
+      st.mig = 1;
+    }
+    return st;
   }
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Speichern fehlgeschlagen: ' + e.message); }
@@ -119,10 +144,20 @@
     const last = lastByName(name);
     const w = S.subWeights[name] != null ? S.subWeights[name] : (last && last.sets.length ? last.sets[0].w : null);
     ent.orig = ent.orig || ent.sets.map(s => Object.assign({}, s));
+    if (!ent.origWarm) ent.origWarm = ent.warm.map(x => Object.assign({}, x));
     ent.sub = name ? { name } : null;
     ent.subOpen = false; ent.menu = false; ent.intra = false;
-    ent.sets = name ? ent.orig.map(() => ({ w, r: e.lo, rpe: e.rpe, done: false })) : ent.orig.map(s => Object.assign({}, s));
+    const n = ent.orig.length;
+    ent.sets = name ? ent.orig.map((_, i) => ({ w, r: e.lo, rpe: lastRpe(e, i, n), done: false })) : ent.orig.map(s => Object.assign({}, s));
+    ent.warm = name ? [] : ent.origWarm.map(x => Object.assign({}, x));
     save(); render();
+  }
+  // RPE-Vorgabe: bei Isolation und failLast-Übungen geht der letzte Satz bis 10
+  const failsLast = e => e.type === 'I' || !!e.failLast;
+  function lastRpe(e, i, n) { return failsLast(e) && i === n - 1 && !(S.active && S.active.deload) ? 10 : e.rpe; }
+  function fixLastRpe(ent, e) {
+    if (!failsLast(e) || (S.active && S.active.deload)) return;
+    ent.sets.forEach((x, i) => { if (x.done) return; if (i === ent.sets.length - 1) x.rpe = 10; else if (x.rpe === 10) x.rpe = e.rpe; });
   }
   function setsText(sets) {
     if (!sets || !sets.length) return '';
@@ -254,10 +289,56 @@
       const r = L.evaluate(tmp, ent.sets, pos);
       return { id, name: e.name, oldW: e.weight || done[0].w, newW: r.newWeight, note: r.note, result: r.result, misses: r.misses };
     });
-    S.summary = { items };
+    S.summary = { items, review: buildReview() };
     A.timer = null;
     save(); render(); toTop();
   }
+  function buildReview() {
+    const A = S.active;
+    const end = isStale() ? new Date(A.lastActivity || A.startedAt).getTime() : Date.now();
+    const mins = Math.max(1, Math.round((end - new Date(A.startedAt)) / 60000));
+    let sets = 0, vol = 0; const rows = []; const prs = [];
+    A.order.forEach(id => {
+      const ent = A.entries[id]; const name = exName(id);
+      const done = ent.sets.filter(x => x.done); if (!done.length) return;
+      sets += done.length; done.forEach(x => { if (x.w && x.r) vol += x.w * x.r; });
+      const now = L.bestE1(done);
+      const prev = bestBefore(name, A.startedAt);
+      let all = 0;
+      const scan = list => list.forEach(sess => { if (sess.deload || sess.date >= A.startedAt) return; const en = sess.entries.find(x => x.name === name); if (en) all = Math.max(all, L.bestE1(en.sets).e1); });
+      scan(S.hevy); scan(S.sessions);
+      const pct = prev && prev.e1 ? (now.e1 / prev.e1 - 1) * 100 : null;
+      const trend = pct == null ? 'new' : pct >= 1 ? 'up' : pct <= -1 ? 'down' : 'same';
+      const isPr = !A.deload && all > 0 && now.e1 > all * 1.005;
+      if (isPr) prs.push({ name, w: now.top.w, r: now.top.r });
+      rows.push({ name, sets: done.length, top: now.top ? fmt(now.top.w) + ' × ' + now.top.r : '', pct, trend, pr: isPr });
+    });
+    const up = rows.filter(r => r.trend === 'up').length, down = rows.filter(r => r.trend === 'down').length;
+    let verdict, tone;
+    if (A.deload) { verdict = 'Deload erledigt – gut erholt in die nächste Woche.'; tone = 'same'; }
+    else if (prs.length || up >= down + 2) { verdict = 'Starkes Training!' + (prs.length ? ' ' + prs.length + (prs.length === 1 ? ' neuer Bestwert.' : ' neue Bestwerte.') : ''); tone = 'up'; }
+    else if (up >= down) { verdict = 'Solides Training – auf Kurs.'; tone = 'same'; }
+    else { verdict = 'Etwas schwächer als zuletzt. Passiert – Schlaf, Essen und Tagesform spielen mit.'; tone = 'down'; }
+    return { date: A.startedAt, day: (dayById(A.dayId) || {}).name, deload: A.deload, mins, sets, vol: Math.round(vol), rows, prs, verdict, tone };
+  }
+  function renderReviewBlock(R) {
+    const pct = p => (p > 0 ? '+' : '') + fmt(Math.round(p * 10) / 10) + ' %';
+    const t = { up: ['▲', 'good'], down: ['▼', 'bad'], same: ['=', 'muted'], new: ['neu', 'muted'] };
+    return `
+      <div class="card review">
+        <div class="verdict ${R.tone}">${esc(R.verdict)}</div>
+        <div class="kpis">
+          <div><div class="k">${R.mins} min</div><div class="muted small">Dauer</div></div>
+          <div><div class="k">${R.sets}</div><div class="muted small">Sätze</div></div>
+          <div><div class="k">${R.vol >= 1000 ? fmt(Math.round(R.vol / 100) / 10) + ' t' : fmt(R.vol) + ' kg'}</div><div class="muted small">bewegt</div></div>
+        </div>
+        ${R.prs.length ? `<div class="rsec"><div class="rh good">Neue Bestwerte</div>${R.prs.map(p => `<div class="rrow"><span>🏆 ${esc(p.name)}</span><span>${fmt(p.w)} × ${p.r}</span></div>`).join('')}</div>` : ''}
+        <div class="rsec"><div class="rh">Im Vergleich zum letzten Mal</div>
+          ${R.rows.map(r => `<div class="rrow"><span>${esc(r.name)}<small class="muted"> · ${r.top}</small></span><span class="${t[r.trend][1]}">${r.pct == null ? t[r.trend][0] : t[r.trend][0] + ' ' + pct(r.pct)}</span></div>`).join('')}
+        </div>
+      </div>`;
+  }
+
   function saveSummary() {
     const A = S.active; const now = isStale() ? (A.lastActivity || A.startedAt) : new Date().toISOString();
     S.summary.items.forEach(it => {
@@ -272,6 +353,7 @@
         const ent = A.entries[id];
         const isX = ex(id).extra; return { exId: ent.sub || isX ? null : id, subFor: ent.sub ? id : undefined, name: ent.sub ? ent.sub.name : ex(id).name, pos, sets: ent.sets.filter(s => s.done).map(s => ({ w: s.w, r: s.r, rpe: s.rpe, done: true })) };
       }).filter(e => e.sets.length),
+      review: S.summary.review || null,
     });
     S.sessions[S.sessions.length - 1].results = S.summary.items.filter(it => !it.skipped && !A.deload).map(it => ({ id: it.id, name: it.name, oldW: it.oldW, newW: it.newW, result: it.result }));
     S.subWeights = S.subWeights || {};
@@ -517,7 +599,7 @@
         ${ent.intra ? `<div class="note warn">Zu schwer – Rest mit ${fmt(ent.intra)} kg? <button class="link" data-act="intra" data-ex="${id}">Übernehmen</button> <button class="link muted" data-act="intrano" data-ex="${id}">Nein</button></div>` : ''}
         <div class="sets">
           <div class="shead"><span>Satz</span><span>Vorher</span><span>kg</span><span>Wdh</span><span>RPE</span><span>✓</span></div>
-          ${!sub ? ent.warm.map((w, i) => renderWarm(id, w, i)).join('') : ''}
+          ${ent.warm.map((w, i) => renderWarm(id, w, i)).join('')}
           ${ent.sets.map((s, i) => renderSet(id, s, i, prev[i])).join('')}
         </div>
         <button class="addset" data-act="addset" data-ex="${id}">+ Satz hinzufügen</button>
@@ -559,8 +641,10 @@
     const it = S.summary.items;
     const cls = r => ({ up: 'up', up2: 'up', down: 'down', miss: 'miss' }[r] || '');
     return `
-      <section class="hero small"><div class="eyebrow">Geschafft</div><h1>Nächstes Mal</h1>
-      <div class="muted">Vorschläge nach den Regeln. Du kannst jedes Gewicht noch ändern.</div></section>
+      <section class="hero small"><div class="eyebrow">Geschafft</div><h1>Dein Training</h1></section>
+      ${S.summary.review ? renderReviewBlock(S.summary.review) : ''}
+      <h2 class="sechead">Nächstes Mal</h2>
+      <div class="muted small" style="margin:0 2px 8px">Vorschläge nach den Regeln. Du kannst jedes Gewicht noch ändern.</div>
       ${it.map((x, i) => `
         <div class="sumrow ${cls(x.result)}">
           <div><div class="sname">${esc(x.name)}</div><div class="muted small">${x.skipped ? esc(x.note || 'Nicht gemacht – unverändert') : esc(x.note || '')}</div></div>
@@ -701,6 +785,11 @@
   }
 
   // ---------- Render: Einstellungen ----------
+  let showLast = false;
+  function lastReview() {
+    for (let i = S.sessions.length - 1; i >= 0; i--) if (S.sessions[i].review) return S.sessions[i].review;
+    return null;
+  }
   function renderSettings() {
     const BLOCK = 12, DELOAD_EVERY = 7;
     const own = S.sessions;
@@ -725,6 +814,8 @@
           <div class="muted small">Alle ${DELOAD_EVERY} Wochen geplant, früher wenn 3 Hauptübungen stagnieren.</div>`
           : '<div class="muted small pmt">Der Fortschritt startet mit deinem ersten Training.</div>'}
       </div>
+      ${lastReview() ? `<button class="card lastbtn" data-act="showlast"><div><div class="eyebrow">Letztes Training</div><div class="lb-title">${esc(lastReview().day || 'Training')} · ${dateDE(lastReview().date)}</div></div><span class="muted">›</span></button>` : ''}
+      ${showLast && lastReview() ? `<div class="overlay" data-act="hidelast"><div class="sheet" data-stop="1"><div class="sheet-title">${esc(lastReview().day || 'Training')} · ${dateDE(lastReview().date)}</div>${renderReviewBlock(lastReview())}<button class="btn primary" data-act="hidelast">Schließen</button></div></div>` : ''}
       <details class="card howto">
         <summary><h2>So funktioniert die App</h2><span class="muted">▾</span></summary>
         <ul>
@@ -733,7 +824,7 @@
           <li><b>Rotation:</b> Die Hauptübungen eines Tages wechseln sich jedes Mal an erster Stelle ab. An zweiter Stelle ist 1 Wdh weniger okay.</li>
           <li><b>RPE:</b> Grundübungen bei RPE 8 (2 Wdh Reserve). Bei Isolation und Maschinen darf der letzte Satz bis zum Versagen gehen – das zählt nicht als Fehlversuch.</li>
           <li><b>Aufwärmen:</b> Vor Hauptübungen werden Aufwärmsätze berechnet. Sie zählen nicht für Progression und Statistik.</li>
-          <li><b>Pausen:</b> Der Timer startet nach jedem Satz automatisch, je nach Übung 1–3 Minuten.</li>
+          <li><b>Pausen:</b> Der Timer startet nach jedem Satz automatisch: Hauptübungen 3:00 (Kraft) bzw. 2:00 (Hypertrophie), sonst 1:30–2:00.</li>
           <li><b>Stagnation & Deload:</b> Wird eine Übung zweimal in 6 Wochen reduziert, schlägt der Wochenrückblick einen Tausch vor. Alle 7 Wochen gibt es eine Deload-Woche (90 % Gewicht, halbe Sätze).</li>
           <li><b>Daten:</b> Alles bleibt auf diesem iPhone. Sichere regelmäßig ein Backup.</li>
         </ul>
@@ -850,13 +941,15 @@
         if (b.dataset.type !== m.kind) {
           if (m.kind === 'set') { const s0 = ent.sets.splice(m.i, 1)[0]; ent.warm.push({ w: s0.w, r: s0.r, done: s0.done, we: s0.we, re: s0.re }); }
           else { const w0 = ent.warm.splice(m.i, 1)[0]; ent.sets.unshift({ w: w0.w, r: w0.r, rpe: e.rpe, done: w0.done, we: w0.we, re: w0.re }); }
+          fixLastRpe(ent, e);
         }
         A.setMenu = null; save(); render(); break;
       }
       case 'addset': {
         const ent = A.entries[id]; const e = ex(id);
         const last = ent.sets[ent.sets.length - 1] || { w: e.weight, r: e.lo, rpe: e.rpe };
-        ent.sets.push({ w: last.w, r: last.r, rpe: last.rpe, done: false });
+        ent.sets.push({ w: last.w, r: last.r, rpe: e.rpe, done: false });
+        fixLastRpe(ent, e);
         A.openId = id; save(); render(); break;
       }
       case 'addex': A.addOpen = true; save(); render(); break;
@@ -864,6 +957,8 @@
       case 'addpick': addExtra(b.dataset.name); break;
       case 'addcustom': { const n = ($('#addname').value || '').trim(); if (n) addExtra(n); else toast('Bitte Namen eingeben'); break; }
       case 'undo': { const f = undoFn; undoFn = null; $('#toast').classList.remove('show'); if (f) f(); break; }
+      case 'showlast': showLast = true; render(); break;
+      case 'hidelast': if (ev.target.closest('[data-stop]') && b.classList.contains('overlay')) break; showLast = false; render(); break;
       case 'reviewok': S.settings.reviewSeen = b.dataset.key; save(); render(); break;
       case 'swapplan': {
         const e = ex(id); const old = e.name; const n = b.dataset.name;
