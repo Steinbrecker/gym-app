@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 19;
+  const APP_VERSION = 20;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -29,7 +29,7 @@
     pushdown: ['Überkopf-Trizepsstrecken (Kabel)', 'Dip-Maschine'],
     hack: ['Beinpresse', 'Kniebeuge Multipresse'],
     legcurl_h: ['Beinbeuger stehend (einbeinig)'],
-    backext: ['Rumänisches Kreuzheben (Kurzhantel)'],
+    slpress: ['Beinpresse', 'Bulgarische Split-Squats Multipresse'],
     legext: ['Beinpresse (enge Fußstellung)'],
     adductor: ['Adduktion am Kabel'],
     abductor: ['Abduktion am Kabel'],
@@ -44,7 +44,7 @@
   let statRange = 0;
 
   function fresh() {
-    return { v: 1, mig: 3, notes: { 'Isolaterales Rudern von oben': 'Beide Seiten gleichzeitig, kg pro Seite' }, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString(), startWeights: (() => { const o = {}; Object.values(L.defaultPlan().exercises).forEach(e => (o[e.id] = e.weight)); return o; })() } };
+    return { v: 1, mig: 4, notes: { 'Isolaterales Rudern von oben': 'Beide Seiten gleichzeitig, kg pro Seite', 'Einbeinige Beinpresse': 'Jedes Bein einzeln, kg und Wdh pro Bein' }, plan: L.defaultPlan(), sessions: [], hevy: [], active: null, summary: null, counters: {}, lastDayId: null, settings: { lastBackup: null, lastDeload: null, created: new Date().toISOString(), startWeights: (() => { const o = {}; Object.values(L.defaultPlan().exercises).forEach(e => (o[e.id] = e.weight)); return o; })() } };
   }
   function load() {
     try {
@@ -101,6 +101,18 @@
       st.settings.startWeights = {};
       Object.keys(st.plan.exercises).forEach(id => { st.settings.startWeights[id] = def[id] ? def[id].weight : st.plan.exercises[id].weight; });
       st.mig = 3;
+    }
+    if (st.mig < 4) {
+      // Lower Hypertrophie: Rückenstrecker raus, einbeinige Beinpresse (Ersatz für Ausfallschritte) rein
+      const P = st.plan.exercises; const nx = L.defaultPlan().exercises.slpress;
+      if (!P.slpress) P.slpress = nx;
+      st.plan.days.forEach(d => { d.ex = d.ex.map(id => (id === 'backext' ? 'slpress' : id)); });
+      if (P.backext && !(st.active && st.active.entries && st.active.entries.backext)) delete P.backext;
+      st.settings = st.settings || {}; st.settings.startWeights = st.settings.startWeights || {};
+      st.settings.startWeights.slpress = null;
+      st.notes = st.notes || {};
+      if (!st.notes['Einbeinige Beinpresse']) st.notes['Einbeinige Beinpresse'] = 'Jedes Bein einzeln, kg und Wdh pro Bein';
+      st.mig = 4;
     }
     return st;
   }
@@ -901,7 +913,7 @@
               <div class="pd-main"><div class="pd-name">${esc(e.name)}</div>
                 <div class="muted small">${e.sets} × ${e.lo}–${e.hi} · RPE ${fmt(e.rpe)}${failsLast(e) ? ', letzter Satz 10' : ''} · Pause ${restOf(e, d.kind)}</div>
                 ${note ? `<div class="cnote">${esc(note)}</div>` : ''}</div>
-              <div class="pd-w">${e.weight ? fmt(e.weight) + ' kg' : 'testen'}${e.kind === 'kh' ? '<small>pro Hantel</small>' : (['isorow', 'highrow', 'inclinepress'].includes(id) ? '<small>pro Seite</small>' : '')}</div>
+              <div class="pd-w">${e.weight ? fmt(e.weight) + ' kg' : 'testen'}${e.kind === 'kh' ? '<small>pro Hantel</small>' : (['isorow', 'highrow', 'inclinepress'].includes(id) ? '<small>pro Seite</small>' : id === 'slpress' ? '<small>pro Bein</small>' : '')}</div>
             </div>`; }).join('')}
         </div>`; }).join('')}
       <div class="muted small" style="margin:4px 2px 0">H = Hauptübung (rotiert an erste Stelle), A = Assistenz, I = Isolation</div>

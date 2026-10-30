@@ -36,7 +36,7 @@
       // Tag 4 – Lower Hypertrophie
       EX('hack', 'Hackenschmidt-Kniebeuge', 'H', 3, 8, 12, 8, 'mp', 'Beine vorne', null, []),
       EX('legcurl_h', 'Beinbeuger liegend', 'H', 3, 10, 15, 9, 'm', 'Beine hinten', 40, [], { failLast: true }),
-      EX('backext', 'Rückenstrecker 45° (mit Scheibe)', 'A', 3, 10, 15, 8, 'mp', 'Beine hinten', null, []),
+      EX('slpress', 'Einbeinige Beinpresse', 'A', 3, 10, 15, 8, 'm', 'Beine vorne', null, []),
       EX('legext', 'Beinstrecker', 'I', 3, 10, 15, 9, 'm', 'Beine vorne', null, []),
       EX('adductor', 'Adduktoren', 'I', 3, 12, 15, 9, 'm', 'Adduktoren', null, []),
       EX('abductor', 'Abduktoren', 'I', 2, 12, 15, 9, 'm', 'Po', null, []),
@@ -46,7 +46,7 @@
       { id: 'up', name: 'Upper Power', kind: 'power', ex: ['bench', 'tbar', 'inclinedb', 'pulldown', 'ohp', 'bbcurl', 'ohtri'] },
       { id: 'lp', name: 'Lower Power', kind: 'power', ex: ['squat', 'deadlift', 'legpress', 'legcurl_p', 'calfseat'] },
       { id: 'uh', name: 'Upper Hypertrophie', kind: 'hyp', ex: ['inclinepress', 'isorow', 'butterfly', 'highrow', 'lateral', 'inclinecurl', 'pushdown'] },
-      { id: 'lh', name: 'Lower Hypertrophie', kind: 'hyp', ex: ['hack', 'legcurl_h', 'backext', 'legext', 'adductor', 'abductor', 'calfpress'] },
+      { id: 'lh', name: 'Lower Hypertrophie', kind: 'hyp', ex: ['hack', 'legcurl_h', 'slpress', 'legext', 'adductor', 'abductor', 'calfpress'] },
     ];
     const map = {};
     exercises.forEach(e => (map[e.id] = e));
