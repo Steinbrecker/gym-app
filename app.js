@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 31;
+  const APP_VERSION = 32;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -1053,7 +1053,7 @@
         <ul>
           <li><b>Gewichte:</b> Nach jedem Training rechnet die App aus Gewicht, Wiederholungen und RPE das Gewicht fürs nächste Mal. Alle Sätze oben im Wdh-Bereich bei passendem RPE → mehr Gewicht. Zweimal hintereinander unter dem Bereich → weniger.</li>
           <li><b>Zu schwer gestartet:</b> Ist der erste Satz klar daneben, schlägt die App für die restlichen Sätze sofort weniger Gewicht vor.</li>
-          <li><b>Rotation:</b> Die Hauptübungen eines Tages wechseln sich jedes Mal an erster Stelle ab. An zweiter Stelle ist 1 Wdh weniger okay.</li>
+          <li><b>Rotation:</b> Die Hauptübungen eines Tages wechseln sich jedes Mal an erster Stelle ab. An zweiter Stelle ist 1 Wdh weniger okay. An den Upper-Tagen tauschen die Assistenzübungen mit, damit sich Drücken und Ziehen immer abwechseln.</li>
           <li><b>RPE:</b> Grundübungen bei RPE 8 (2 Wdh Reserve). Bei Isolation und Maschinen darf der letzte Satz bis zum Versagen gehen – das zählt nicht als Fehlversuch.</li>
           <li><b>Aufwärmen:</b> Die Verbund-Hauptübungen am Anfang (z. B. Bankdrücken, Kniebeuge, Kreuzheben, Hackenschmidt) bekommen automatisch Aufwärmsätze. Bei allen anderen fügst du sie bei Bedarf selbst hinzu: „+ Satz hinzufügen“, dann auf die Satznummer tippen → Aufwärmsatz. Aufwärmsätze zählen nicht für Progression und Statistik.</li>
           <li><b>Pausen:</b> Der Timer startet nach jedem Satz automatisch: Hauptübungen 3:00 (Kraft) bzw. 2:00 (Hypertrophie), sonst 1:30–2:00.</li>

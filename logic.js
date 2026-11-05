@@ -90,8 +90,14 @@
     const H = day.ex.filter(id => plan.exercises[id] && plan.exercises[id].type === 'H');
     const rest = day.ex.filter(id => plan.exercises[id] && plan.exercises[id].type !== 'H');
     const k = H.length ? pass % H.length : 0;
+    // Assistenzpaare tauschen mit, damit Drücken und Ziehen sich abwechseln (nur Upper-Tage)
+    if (k % 2 === 1) (day.swap || SWAP[day.id] || []).forEach(([a, b]) => {
+      const i = rest.indexOf(a), j = rest.indexOf(b);
+      if (i >= 0 && j >= 0) { rest[i] = b; rest[j] = a; }
+    });
     return H.slice(k).concat(H.slice(0, k)).concat(rest);
   }
+  const SWAP = { up: [['inclinedb', 'pulldown']], uh: [['butterfly', 'highrow']] };
 
   // ---------- Aufwärmen ----------
   function warmups(ex, dayKind, isFirstMachine) {
