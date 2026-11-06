@@ -187,7 +187,9 @@
       if (!lastSets || !lastSets.length || lastWeight !== ex.weight) out.push(ex.lo);
       else {
         const s = lastSets[Math.min(i, lastSets.length - 1)];
-        out.push(Math.min(ex.hi, Math.max(ex.lo, (s ? s.r : ex.lo) + 1)));
+        const r = s ? s.r : ex.lo;
+        // Am oder über dem oberen Ende: halten statt kürzen; sonst +1 bis zum oberen Ende
+        out.push(r >= ex.hi ? r : Math.min(ex.hi, Math.max(ex.lo, r + 1)));
       }
     }
     return out;
