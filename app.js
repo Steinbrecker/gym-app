@@ -3,7 +3,7 @@
   'use strict';
   const L = window.Logic;
   const KEY = 'gymapp.v1';
-  const APP_VERSION = 33;
+  const APP_VERSION = 34;
   const RPES = [6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10];
   const REST = { power: { H: 180, A: 120, I: 90 }, hyp: { H: 120, A: 90, I: 90 } };
   // Ausweich-Übungen, wenn eine Maschine besetzt oder defekt ist
@@ -99,10 +99,13 @@
   }
 
 
+  // Jede Kalenderwoche ist ein Durchgang: nächster Tag = erster Tag des Plans, der diese Woche noch fehlt.
+  // Ausgelassene Tage werden nicht in die nächste Woche geschoben; montags geht es wieder vorne los.
   function nextDayId() {
     const ids = S.plan.days.map(d => d.id);
-    if (!S.lastDayId) return ids[0];
-    return ids[(ids.indexOf(S.lastDayId) + 1) % ids.length];
+    const wk = weekStart(new Date()).getTime();
+    const doneThisWeek = new Set(S.sessions.filter(x => new Date(x.date).getTime() >= wk).map(x => x.dayId));
+    return ids.find(id => !doneThisWeek.has(id)) || ids[0];
   }
 
   // Letzte eigene Einheit mit dieser Übung (für "Letztes Mal" und Ziel-Wdh)
@@ -966,7 +969,7 @@
           <div><div class="k ${avg != null ? (avg >= 0 ? 'good' : 'bad') : ''}">${avg != null ? sgn(avg) : '–'}</div><div class="muted small">Kraft seit Start</div></div>
         </div>
         <div class="pbar"><div style="width:${Math.min(100, (done / total) * 100)}%"></div></div>
-        <div class="muted small">${done >= soll ? '<b class="good">Voll im Plan</b>' : (soll - done) + (soll - done === 1 ? ' Training' : ' Trainings') + ' hinter dem Soll'} · diese Woche ${thisW} von ${per}</div>
+        <div class="muted small">${Math.min(wNow, BLOCK_WEEKS)} ${Math.min(wNow, BLOCK_WEEKS) === 1 ? 'Woche' : 'Wochen'} abgeschlossen · diese Woche ${thisW} von ${per}</div>
         <div class="wgrid">
           ${perWeek.map((n, w) => `<div class="wcol ${w === wNow ? 'now' : ''} ${w > wNow ? 'future' : ''}">
             ${Array.from({ length: per }, (_, i) => `<span class="${i < n ? 'on' : ''}"></span>`).join('')}
